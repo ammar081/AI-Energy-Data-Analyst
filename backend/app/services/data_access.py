@@ -28,10 +28,12 @@ def load_clean_dataset(record: DatasetRecord) -> pd.DataFrame:
 
 
 def record_profile(record: DatasetRecord) -> dict[str, object]:
+    cleaning_report = record.summary_json or {}
     return {
         "datetime_column": record.datetime_column,
         "value_column": record.value_column,
         "asset_column": record.asset_column,
-        **(record.summary_json.get("columns_used_for_analysis", {}) if record.summary_json else {}),
+        **cleaning_report.get("columns_used_for_analysis", {}),
+        "cleaning_report": cleaning_report,
+        "original_missing_percentage": cleaning_report.get("original_missing_percentage", 0),
     }
-

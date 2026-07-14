@@ -5,7 +5,6 @@ import pandas as pd
 
 from app.services.column_mapper import infer_columns, standardize_columns
 
-
 NON_NEGATIVE_HINTS = ("energy", "power", "yield", "generation", "output", "irradiation", "irradiance")
 
 
@@ -79,6 +78,8 @@ def clean_dataset(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
     original_columns = len(cleaned.columns)
     original_dtypes = {column: str(dtype) for column, dtype in cleaned.dtypes.items()}
     original_missing = {column: int(count) for column, count in cleaned.isna().sum().items()}
+    total_original_cells = max(original_rows * original_columns, 1)
+    original_missing_percentage = round(sum(original_missing.values()) / total_original_cells * 100, 2)
 
     cleaned = cleaned.replace([np.inf, -np.inf], np.nan)
     cleaned = cleaned.dropna(how="all")
@@ -106,6 +107,21 @@ def clean_dataset(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
             mask = cleaned[column] < 0
             negative_replacements += int(mask.sum())
             cleaned.loc[mask, column] = np.nan
+
+    quality_events: list[dict[str, Any]] = []
+    value_column = preliminary_map.value_column
+    if value_column and value_column in cleaned.columns:
+        telemetry_missing = cleaned[value_column].isna()
+        for _, row in cleaned.loc[telemetry_missing].head(200).iterrows():
+            timestamp = row.get(datetime_column) if datetime_column else None
+            asset = row.get(preliminary_map.asset_column) if preliminary_map.asset_column else None
+            quality_events.append(
+                {
+                    "timestamp": _json_safe(timestamp) if pd.notna(timestamp) else None,
+                    "asset": _json_safe(asset) if pd.notna(asset) else None,
+                    "reason": "Output telemetry was missing or invalid and was repaired during cleaning.",
+                }
+            )
 
     missing_before_fill = int(cleaned.isna().sum().sum())
     cleaned = _fill_missing_values(cleaned, datetime_column, preliminary_map.asset_column)
@@ -136,6 +152,8 @@ def clean_dataset(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
         "outlier_cells_detected": outlier_cells,
         "original_dtypes": original_dtypes,
         "original_missing_values": original_missing,
+        "original_missing_percentage": original_missing_percentage,
+        "data_quality_events": quality_events,
         "columns_used_for_analysis": final_map.to_dict(),
         "original_preview": [
             {key: _json_safe(value) for key, value in row.items()}

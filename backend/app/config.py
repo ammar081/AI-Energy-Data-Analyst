@@ -3,7 +3,6 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_ROOT.parent if BACKEND_ROOT.name == "backend" else BACKEND_ROOT
 STORAGE_ROOT = PROJECT_ROOT / "storage"
@@ -20,7 +19,8 @@ class Settings(BaseSettings):
     report_dir: Path = PROJECT_ROOT / "reports"
     max_upload_size_mb: int = 50
     openai_api_key: str | None = None
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-5.6-luna"
+    openai_timeout_seconds: float = 20.0
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

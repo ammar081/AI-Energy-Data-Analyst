@@ -2,7 +2,6 @@ from dataclasses import asdict, dataclass
 
 import pandas as pd
 
-
 DATE_HINTS = ("date", "time", "timestamp", "datetime", "period")
 VALUE_HINTS = (
     "ac_power",

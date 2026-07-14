@@ -40,6 +40,7 @@ class KPIResponse(BaseModel):
     lowest_output: float | None = None
     capacity_factor: float | None = None
     downtime_hours: float | None = None
+    downtime_basis: str
     missing_data_percentage: float
     best_performing_asset: dict[str, Any] | None = None
     underperforming_asset: dict[str, Any] | None = None
@@ -81,5 +82,7 @@ class AskRequest(BaseModel):
 class AskResponse(BaseModel):
     intent: str
     answer: str
+    source: str
+    analysis_period: str
+    explanation: dict[str, str]
     data: dict[str, Any]
-

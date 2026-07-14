@@ -32,7 +32,6 @@ from app.services.kpi_service import compute_kpis
 from app.services.qa_service import answer_question
 from app.services.report_service import generate_html_report
 
-
 router = APIRouter()
 settings = get_settings()
 logger = logging.getLogger(__name__)

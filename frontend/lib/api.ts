@@ -25,6 +25,23 @@ export type SummaryResponse = {
   cleaning_report: Record<string, unknown>;
 };
 
+export type CleaningReport = {
+  original_rows?: number;
+  original_columns?: number;
+  cleaned_rows?: number;
+  cleaned_columns?: number;
+  duplicate_rows_removed?: number;
+  invalid_timestamps_removed?: number;
+  missing_values_before_fill?: number;
+  missing_values_after_fill?: number;
+  missing_values_fixed?: number;
+  negative_values_replaced?: number;
+  outlier_cells_detected?: number;
+  original_missing_percentage?: number;
+  original_missing_values?: Record<string, number>;
+  columns_used_for_analysis?: Record<string, string | string[] | null>;
+};
+
 export type KPIResponse = {
   value_column: string | null;
   datetime_column: string | null;
@@ -34,6 +51,7 @@ export type KPIResponse = {
   lowest_output: number | null;
   capacity_factor: number | null;
   downtime_hours: number | null;
+  downtime_basis: string;
   missing_data_percentage: number;
   best_performing_asset: AssetPerformance | null;
   underperforming_asset: AssetPerformance | null;
@@ -78,6 +96,14 @@ export type ForecastResponse = {
 export type AskResponse = {
   intent: string;
   answer: string;
+  source: "openai" | "rules";
+  analysis_period: string;
+  explanation: {
+    what_happened: string;
+    why_it_matters: string;
+    possible_reason: string;
+    suggested_next_step: string;
+  };
   data: Record<string, unknown>;
 };
 
@@ -115,4 +141,3 @@ export const api = {
     }),
   reportUrl: (datasetId: string) => `${API_BASE_URL}/datasets/${datasetId}/report`
 };
-

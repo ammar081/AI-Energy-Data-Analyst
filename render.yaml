@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: ammar081-energy-analyst-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerContext: .
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ammar081-energy-analyst-db
+          property: connectionString
+      - key: ALLOWED_ORIGINS
+        value: https://ammar081-energy-analyst.onrender.com
+      - key: OPENAI_MODEL
+        value: gpt-5.6-luna
+      - key: OPENAI_API_KEY
+        sync: false
+
+  - type: web
+    name: ammar081-energy-analyst
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerContext: .
+    dockerfilePath: ./frontend/Dockerfile
+    healthCheckPath: /
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://ammar081-energy-analyst-api.onrender.com/api
+
+databases:
+  - name: ammar081-energy-analyst-db
+    plan: free
+    region: frankfurt
+    databaseName: energy_analytics
+    user: energy_analyst

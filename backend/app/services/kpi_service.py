@@ -27,6 +27,8 @@ def compute_kpis(frame: pd.DataFrame, profile: dict[str, Any]) -> dict[str, Any]
     datetime_column = profile.get("datetime_column")
     asset_column = profile.get("asset_column")
     capacity_column = profile.get("capacity_column")
+    status_column = profile.get("status_column")
+    missing_percentage = _round(float(profile.get("original_missing_percentage") or 0)) or 0
 
     if not value_column or value_column not in frame.columns:
         return {
@@ -38,7 +40,8 @@ def compute_kpis(frame: pd.DataFrame, profile: dict[str, Any]) -> dict[str, Any]
             "lowest_output": None,
             "capacity_factor": None,
             "downtime_hours": None,
-            "missing_data_percentage": _round(frame.isna().mean().mean() * 100) or 0,
+            "downtime_basis": "not_available",
+            "missing_data_percentage": missing_percentage,
             "best_performing_asset": None,
             "underperforming_asset": None,
             "asset_performance": [],
@@ -60,11 +63,17 @@ def compute_kpis(frame: pd.DataFrame, profile: dict[str, Any]) -> dict[str, Any]
         )
         average_daily_output = _round(daily.mean()) if not daily.empty else None
 
-    downtime_hours = None
     interval_hours = _infer_interval_hours(frame, datetime_column if isinstance(datetime_column, str) else None)
-    max_value = float(values.max(skipna=True) or 0)
-    zero_threshold = max(max_value * 0.01, 1e-9)
-    downtime_hours = _round(float((values <= zero_threshold).sum()) * interval_hours)
+    downtime_basis = "low_output_estimate"
+    if status_column and status_column in frame.columns:
+        down_statuses = {"down", "offline", "fault", "failed", "stopped", "maintenance", "inactive"}
+        normalized_status = frame[status_column].astype(str).str.strip().str.lower()
+        downtime_hours = _round(float(normalized_status.isin(down_statuses).sum()) * interval_hours)
+        downtime_basis = f"status:{status_column}"
+    else:
+        max_value = float(values.max(skipna=True) or 0)
+        zero_threshold = max(max_value * 0.01, 1e-9)
+        downtime_hours = _round(float((values <= zero_threshold).sum()) * interval_hours)
 
     capacity_factor = None
     if capacity_column and capacity_column in frame.columns and pd.api.types.is_numeric_dtype(frame[capacity_column]):
@@ -106,7 +115,8 @@ def compute_kpis(frame: pd.DataFrame, profile: dict[str, Any]) -> dict[str, Any]
         "lowest_output": lowest_output,
         "capacity_factor": capacity_factor,
         "downtime_hours": downtime_hours,
-        "missing_data_percentage": _round(frame.isna().mean().mean() * 100) or 0,
+        "downtime_basis": downtime_basis,
+        "missing_data_percentage": missing_percentage,
         "best_performing_asset": best_asset,
         "underperforming_asset": worst_asset,
         "asset_performance": asset_performance,

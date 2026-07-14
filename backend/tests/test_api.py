@@ -66,6 +66,10 @@ def test_dataset_workflow(api_client: TestClient) -> None:
     kpis = api_client.get(f"/api/datasets/{dataset_id}/kpis")
     forecast = api_client.get(f"/api/datasets/{dataset_id}/forecast?days=7")
     report = api_client.get(f"/api/datasets/{dataset_id}/report")
+    question = api_client.post(
+        f"/api/datasets/{dataset_id}/ask",
+        json={"question": "Which plant produced the most energy this month?"},
+    )
 
     assert summary.status_code == 200
     assert summary.json()["dataset"]["row_count"] == 24
@@ -75,6 +79,13 @@ def test_dataset_workflow(api_client: TestClient) -> None:
     assert len(forecast.json()["forecast"]) == 7
     assert report.status_code == 200
     assert "Renewable Energy Performance Report" in report.text
+    assert question.status_code == 200
+    assert set(question.json()["explanation"]) == {
+        "what_happened",
+        "why_it_matters",
+        "possible_reason",
+        "suggested_next_step",
+    }
 
 
 def test_upload_rejects_files_over_configured_limit(
