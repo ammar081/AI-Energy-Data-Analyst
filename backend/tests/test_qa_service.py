@@ -19,7 +19,10 @@ def _profile() -> dict[str, object]:
 
 
 def test_question_router_applies_latest_dataset_month(monkeypatch) -> None:
-    monkeypatch.setattr(qa_service, "classify_intent", lambda question: None)
+    def unexpected_classifier(question: str) -> None:
+        raise AssertionError(f"Known question should not call Gemini classifier: {question}")
+
+    monkeypatch.setattr(qa_service, "classify_intent", unexpected_classifier)
     monkeypatch.setattr(qa_service, "explain_findings", lambda question, findings: None)
 
     result = qa_service.answer_question("Which plant produced the most energy this month?", _frame(), _profile())
@@ -30,7 +33,10 @@ def test_question_router_applies_latest_dataset_month(monkeypatch) -> None:
 
 
 def test_question_router_calculates_biggest_daily_drop(monkeypatch) -> None:
-    monkeypatch.setattr(qa_service, "classify_intent", lambda question: None)
+    def unexpected_classifier(question: str) -> None:
+        raise AssertionError(f"Known question should not call Gemini classifier: {question}")
+
+    monkeypatch.setattr(qa_service, "classify_intent", unexpected_classifier)
     monkeypatch.setattr(qa_service, "explain_findings", lambda question, findings: None)
 
     result = qa_service.answer_question("Which day had the biggest production drop?", _frame(), _profile())

@@ -18,9 +18,9 @@ class Settings(BaseSettings):
     dataset_dir: Path = STORAGE_ROOT / "datasets"
     report_dir: Path = PROJECT_ROOT / "reports"
     max_upload_size_mb: int = 50
-    openai_api_key: str | None = None
-    openai_model: str = "gpt-5.6-luna"
-    openai_timeout_seconds: float = 20.0
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.5-flash"
+    gemini_timeout_seconds: float = 8.0
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

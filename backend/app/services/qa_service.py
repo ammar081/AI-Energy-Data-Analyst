@@ -144,8 +144,9 @@ def _bounded(value: Any) -> Any:
 
 
 def answer_question(question: str, frame: pd.DataFrame, profile: dict[str, Any]) -> dict[str, Any]:
-    ai_decision = classify_intent(question)
-    decision = ai_decision or _rule_decision(question)
+    rule_decision = _rule_decision(question)
+    ai_decision = classify_intent(question) if rule_decision.intent == AnalysisIntent.summarize_dataset else None
+    decision = ai_decision or rule_decision
     filtered, period_label = _filter_period(frame, profile.get("datetime_column"), decision.period)
     if filtered.empty:
         filtered = frame
@@ -237,7 +238,7 @@ def answer_question(question: str, frame: pd.DataFrame, profile: dict[str, Any])
     return {
         "intent": decision.intent.value,
         "answer": answer,
-        "source": "openai" if ai_decision or ai_explanation else "rules",
+        "source": "gemini" if ai_decision or ai_explanation else "rules",
         "analysis_period": period_label,
         "explanation": explanation.model_dump(),
         "data": data,

@@ -3,6 +3,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+MAX_ANOMALY_ANALYSIS_ROWS = 25_000
+
 
 def _severity(score: float) -> str:
     if score >= 4:
@@ -89,7 +91,12 @@ def detect_anomalies(frame: pd.DataFrame, profile: dict[str, Any], limit: int = 
     if not value_column or value_column not in frame.columns:
         return []
 
-    working = frame.copy()
+    sampled = len(frame) > MAX_ANOMALY_ANALYSIS_ROWS
+    if sampled:
+        sample_indexes = np.linspace(0, len(frame) - 1, MAX_ANOMALY_ANALYSIS_ROWS, dtype=int)
+        working = frame.iloc[sample_indexes].copy()
+    else:
+        working = frame.copy()
     working[value_column] = pd.to_numeric(working[value_column], errors="coerce")
     if datetime_column and datetime_column in working.columns:
         working[datetime_column] = pd.to_datetime(working[datetime_column], errors="coerce")
@@ -112,7 +119,7 @@ def detect_anomalies(frame: pd.DataFrame, profile: dict[str, Any], limit: int = 
     std = float(values.std() or 0)
     if std and not np.isnan(std):
         z_scores = ((values - mean) / std).abs()
-        for index, score in z_scores[z_scores >= 2.5].items():
+        for index, score in z_scores[z_scores >= 2.5].nlargest(limit * 3).items():
             add_candidate(
                 int(index),
                 float(score),
@@ -126,7 +133,7 @@ def detect_anomalies(frame: pd.DataFrame, profile: dict[str, Any], limit: int = 
         residual = (values - rolling_average).abs()
         threshold = residual.dropna().quantile(0.90)
         if pd.notna(threshold) and threshold > 0:
-            for index in residual[residual >= threshold].dropna().index:
+            for index in residual[residual >= threshold].dropna().nlargest(limit * 3).index:
                 score = max(float(residual.loc[index] / (std or 1)), 2.6)
                 add_candidate(
                     int(index),
@@ -141,11 +148,14 @@ def detect_anomalies(frame: pd.DataFrame, profile: dict[str, Any], limit: int = 
             from sklearn.ensemble import IsolationForest
 
             contamination = min(0.12, max(0.03, 5 / len(numeric)))
-            labels = IsolationForest(contamination=contamination, random_state=42).fit_predict(numeric)
-            for index, label in enumerate(labels):
-                if label == -1:
+            model = IsolationForest(contamination=contamination, random_state=42, n_jobs=-1)
+            labels = model.fit_predict(numeric)
+            candidate_indexes = np.flatnonzero(labels == -1)
+            if len(candidate_indexes):
+                scores = pd.Series(-model.score_samples(numeric.iloc[candidate_indexes]), index=candidate_indexes)
+                for index in scores.nlargest(limit * 3).index:
                     add_candidate(
-                        index,
+                        int(index),
                         2.7,
                         "isolation_forest",
                         _statistical_explanation(float(values.iloc[index]), expected_low, expected_high, "isolation_forest"),
@@ -228,15 +238,16 @@ def detect_anomalies(frame: pd.DataFrame, profile: dict[str, Any], limit: int = 
             }
         )
 
-    anomalies.extend(
-        _telemetry_gap_events(
-            working,
-            str(datetime_column) if datetime_column else None,
-            str(asset_column) if asset_column else None,
-            str(value_column),
-            (expected_low, expected_high),
+    if not sampled:
+        anomalies.extend(
+            _telemetry_gap_events(
+                working,
+                str(datetime_column) if datetime_column else None,
+                str(asset_column) if asset_column else None,
+                str(value_column),
+                (expected_low, expected_high),
+            )
         )
-    )
     anomalies.sort(
         key=lambda item: ({"high": 3, "medium": 2, "low": 1}[item["severity"]], item["_score"]),
         reverse=True,

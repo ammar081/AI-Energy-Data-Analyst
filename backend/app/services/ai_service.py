@@ -39,11 +39,15 @@ class ExecutiveReport(BaseModel):
 
 def _client():
     settings = get_settings()
-    if not settings.openai_api_key:
+    if not settings.gemini_api_key:
         return None
-    from openai import OpenAI
+    from google import genai
+    from google.genai import types
 
-    return OpenAI(api_key=settings.openai_api_key, timeout=settings.openai_timeout_seconds)
+    return genai.Client(
+        api_key=settings.gemini_api_key,
+        http_options=types.HttpOptions(timeout=int(settings.gemini_timeout_seconds * 1000)),
+    )
 
 
 def _parse_response(schema: type[BaseModel], instructions: str, payload: dict[str, Any]) -> BaseModel | None:
@@ -52,16 +56,25 @@ def _parse_response(schema: type[BaseModel], instructions: str, payload: dict[st
         return None
     settings = get_settings()
     try:
-        response = client.responses.parse(
-            model=settings.openai_model,
-            instructions=instructions,
-            input=json.dumps(payload, default=str),
-            text_format=schema,
+        interaction = client.interactions.create(
+            model=settings.gemini_model,
+            input=(
+                f"{instructions}\n\n"
+                "Return only data matching the required JSON schema.\n"
+                f"Verified input:\n{json.dumps(payload, default=str)}"
+            ),
+            response_format={
+                "type": "text",
+                "mime_type": "application/json",
+                "schema": schema.model_json_schema(),
+            },
         )
-        return response.output_parsed
+        return schema.model_validate_json(interaction.output_text)
     except Exception as exc:
-        logger.warning("OpenAI structured response failed: %s", exc)
+        logger.warning("Gemini structured response failed: %s", exc)
         return None
+    finally:
+        client.close()
 
 
 def classify_intent(question: str) -> IntentDecision | None:

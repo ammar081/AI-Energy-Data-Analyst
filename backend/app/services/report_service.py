@@ -114,7 +114,7 @@ def generate_html_report(frame: pd.DataFrame, profile: dict[str, Any], dataset_n
         f"peak output is {_format(kpis.get('peak_output'))}, and downtime is estimated at "
         f"{_format(kpis.get('downtime_hours'))} hours. {forecast['summary']}"
     )
-    summary_source = "OpenAI structured analysis" if ai_report else "Deterministic analytics fallback"
+    summary_source = "Gemini structured analysis" if ai_report else "Deterministic analytics fallback"
 
     anomaly_rows = "".join(
         f"<tr><td>{_format(item['timestamp'])}</td><td>{_format(item.get('asset'))}</td>"

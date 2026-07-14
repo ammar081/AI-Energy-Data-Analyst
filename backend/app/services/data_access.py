@@ -1,4 +1,6 @@
+from functools import lru_cache
 from pathlib import Path
+from threading import RLock
 
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -8,6 +10,23 @@ from app.models.db import DatasetRecord
 
 class DatasetNotFoundError(LookupError):
     pass
+
+
+_dataset_cache_lock = RLock()
+
+
+@lru_cache(maxsize=2)
+def _read_clean_dataset(path_value: str, modified_ns: int, datetime_column: str | None) -> pd.DataFrame:
+    del modified_ns  # File modification time is part of the cache key.
+    frame = pd.read_csv(path_value)
+    if datetime_column and datetime_column in frame.columns:
+        frame[datetime_column] = pd.to_datetime(frame[datetime_column], errors="coerce")
+    return frame
+
+
+def clear_dataset_cache() -> None:
+    with _dataset_cache_lock:
+        _read_clean_dataset.cache_clear()
 
 
 def get_dataset_or_404(db: Session, dataset_id: str) -> DatasetRecord:
@@ -21,10 +40,9 @@ def load_clean_dataset(record: DatasetRecord) -> pd.DataFrame:
     path = Path(record.cleaned_path)
     if not path.exists():
         raise FileNotFoundError(f"Cleaned dataset file is missing: {path}")
-    frame = pd.read_csv(path)
-    if record.datetime_column and record.datetime_column in frame.columns:
-        frame[record.datetime_column] = pd.to_datetime(frame[record.datetime_column], errors="coerce")
-    return frame
+    stat = path.stat()
+    with _dataset_cache_lock:
+        return _read_clean_dataset(str(path.resolve()), stat.st_mtime_ns, record.datetime_column)
 
 
 def record_profile(record: DatasetRecord) -> dict[str, object]:

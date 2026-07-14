@@ -17,9 +17,9 @@ services:
           property: connectionString
       - key: ALLOWED_ORIGINS
         value: https://ammar081-energy-analyst.onrender.com
-      - key: OPENAI_MODEL
-        value: gpt-5.6-luna
-      - key: OPENAI_API_KEY
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_API_KEY
         sync: false
 
   - type: web

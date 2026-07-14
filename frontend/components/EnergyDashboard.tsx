@@ -11,6 +11,7 @@ import {
   Loader2,
   RefreshCcw,
   Search,
+  Trash2,
   UploadCloud,
   Zap
 } from "lucide-react";
@@ -162,6 +163,8 @@ export function EnergyDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isAsking, setIsAsking] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<Dataset | null>(null);
   const [error, setError] = useState("");
 
   const selectedDataset = useMemo(() => datasets.find((dataset) => dataset.id === selectedId) ?? null, [datasets, selectedId]);
@@ -201,13 +204,32 @@ export function EnergyDashboard() {
     try {
       const result = await api.uploadDataset(file);
       await loadDatasets(result.dataset.id);
-      await loadDatasetDetails(result.dataset.id);
       setActiveView("overview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed.");
     } finally {
       setIsUploading(false);
       event.target.value = "";
+    }
+  }
+
+  async function handleDeleteDataset(dataset: Dataset) {
+    setDeletingId(dataset.id);
+    setError("");
+    try {
+      await api.deleteDataset(dataset.id);
+      const remaining = datasets.filter((item) => item.id !== dataset.id);
+      setDatasets(remaining);
+      if (selectedId === dataset.id) {
+        setState(emptyState);
+        setAnswer(null);
+        setSelectedId(remaining[0]?.id ?? "");
+      }
+      setPendingDelete(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete dataset.");
+    } finally {
+      setDeletingId("");
     }
   }
 
@@ -249,9 +271,21 @@ export function EnergyDashboard() {
         <div className="dataset-list">
           <div className="section-label">Datasets</div>
           {datasets.length === 0 ? <div className="empty-copy">No datasets yet.</div> : datasets.map((dataset) => (
-            <button className={`dataset-item ${dataset.id === selectedId ? "active" : ""}`} key={dataset.id} onClick={() => setSelectedId(dataset.id)} type="button">
-              <span>{dataset.original_filename}</span><small>{dataset.row_count} rows | {dataset.column_count} columns</small>
-            </button>
+            <div className="dataset-row" key={dataset.id}>
+              <button className={`dataset-item ${dataset.id === selectedId ? "active" : ""}`} onClick={() => setSelectedId(dataset.id)} type="button">
+                <span>{dataset.original_filename}</span><small>{dataset.row_count} rows | {dataset.column_count} columns</small>
+              </button>
+              <button
+                aria-label={`Delete ${dataset.original_filename}`}
+                className="dataset-delete"
+                disabled={deletingId === dataset.id}
+                onClick={() => setPendingDelete(dataset)}
+                title="Delete dataset"
+                type="button"
+              >
+                {deletingId === dataset.id ? <Loader2 className="spin" size={17} /> : <Trash2 size={17} />}
+              </button>
+            </div>
           ))}
         </div>
       </aside>
@@ -326,7 +360,7 @@ export function EnergyDashboard() {
                   <div className="panel">
                     <div className="panel-heading"><div><h3>Ask Data</h3><p>Validated intent analysis</p></div><Brain size={20} /></div>
                     <form className="ask-form" onSubmit={handleQuestion}><div className="question-row"><Search size={18} /><input aria-label="Ask a question about this dataset" value={question} onChange={(event) => setQuestion(event.target.value)} /><button disabled={isAsking} type="submit">{isAsking ? <Loader2 className="spin" size={18} /> : "Ask"}</button></div></form>
-                    {answer ? <div className="answer-box"><div className="answer-meta"><span>{answer.source === "openai" ? "OpenAI assisted" : "Rules analysis"}</span><span>{answer.analysis_period}</span></div><strong>{answer.explanation.what_happened}</strong><dl><dt>Why it matters</dt><dd>{answer.explanation.why_it_matters}</dd><dt>Possible reason</dt><dd>{answer.explanation.possible_reason}</dd><dt>Next step</dt><dd>{answer.explanation.suggested_next_step}</dd></dl></div> : null}
+                    {answer ? <div className="answer-box"><div className="answer-meta"><span>{answer.source === "gemini" ? "Gemini assisted" : "Rules analysis"}</span><span>{answer.analysis_period}</span></div><strong>{answer.explanation.what_happened}</strong><dl><dt>Why it matters</dt><dd>{answer.explanation.why_it_matters}</dd><dt>Possible reason</dt><dd>{answer.explanation.possible_reason}</dd><dt>Next step</dt><dd>{answer.explanation.suggested_next_step}</dd></dl></div> : null}
                     <div className="sample-table"><div className="section-label">Try asking</div><div className="question-suggestions">{["Which plant produced the most energy this month?", "Which day had the biggest production drop?", "What factors seem related to low production?"].map((item) => <button key={item} onClick={() => setQuestion(item)} type="button">{item}</button>)}</div></div>
                   </div>
                 </section>
@@ -335,6 +369,24 @@ export function EnergyDashboard() {
           </>
         )}
       </section>
+      {pendingDelete ? (
+        <div className="modal-backdrop" role="presentation">
+          <div aria-labelledby="delete-dialog-title" aria-modal="true" className="delete-dialog" role="dialog">
+            <div className="delete-dialog-icon"><Trash2 size={20} /></div>
+            <div>
+              <h3 id="delete-dialog-title">Delete dataset?</h3>
+              <p><strong>{pendingDelete.original_filename}</strong> and its cleaned data will be permanently removed.</p>
+            </div>
+            <div className="delete-dialog-actions">
+              <button disabled={Boolean(deletingId)} onClick={() => setPendingDelete(null)} type="button">Cancel</button>
+              <button className="danger-button" disabled={Boolean(deletingId)} onClick={() => handleDeleteDataset(pendingDelete)} type="button">
+                {deletingId ? <Loader2 className="spin" size={17} /> : <Trash2 size={17} />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

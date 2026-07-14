@@ -96,7 +96,7 @@ export type ForecastResponse = {
 export type AskResponse = {
   intent: string;
   answer: string;
-  source: "openai" | "rules";
+  source: "gemini" | "rules";
   analysis_period: string;
   explanation: {
     what_happened: string;
@@ -108,22 +108,36 @@ export type AskResponse = {
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...init?.headers
+  const timeoutController = new AbortController();
+  const timeoutId = window.setTimeout(() => timeoutController.abort(), 30_000);
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      signal: init?.signal ?? timeoutController.signal,
+      headers: {
+        ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...init?.headers
+      }
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new Error(payload?.detail ?? `Request failed with ${response.status}`);
     }
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
-    throw new Error(payload?.detail ?? `Request failed with ${response.status}`);
+    if (response.status === 204) return undefined as T;
+    return response.json() as Promise<T>;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("The request took longer than 30 seconds. Try again or use a smaller dataset.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  return response.json() as Promise<T>;
 }
 
 export const api = {
   listDatasets: () => request<Dataset[]>("/datasets"),
+  deleteDataset: (datasetId: string) => request<void>(`/datasets/${datasetId}`, { method: "DELETE" }),
   uploadDataset: (file: File) => {
     const body = new FormData();
     body.append("file", file);

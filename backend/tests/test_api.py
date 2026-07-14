@@ -87,6 +87,13 @@ def test_dataset_workflow(api_client: TestClient) -> None:
         "suggested_next_step",
     }
 
+    deletion = api_client.delete(f"/api/datasets/{dataset_id}")
+    assert deletion.status_code == 204
+    assert api_client.get(f"/api/datasets/{dataset_id}/summary").status_code == 404
+    assert api_client.get("/api/datasets").json() == []
+    assert not any(api_routes.settings.upload_dir.iterdir())
+    assert not any(api_routes.settings.dataset_dir.iterdir())
+
 
 def test_upload_rejects_files_over_configured_limit(
     api_client: TestClient,

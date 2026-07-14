@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
 from sqlalchemy.exc import SQLAlchemyError
@@ -25,7 +25,13 @@ from app.models.schemas import (
 from app.services.anomaly_service import detect_anomalies
 from app.services.chart_service import build_charts
 from app.services.cleaning import clean_dataset
-from app.services.data_access import DatasetNotFoundError, get_dataset_or_404, load_clean_dataset, record_profile
+from app.services.data_access import (
+    DatasetNotFoundError,
+    clear_dataset_cache,
+    get_dataset_or_404,
+    load_clean_dataset,
+    record_profile,
+)
 from app.services.file_reader import SUPPORTED_EXTENSIONS, read_table, write_clean_table
 from app.services.forecast_service import forecast_output
 from app.services.kpi_service import compute_kpis
@@ -53,6 +59,18 @@ def _handle_lookup(db: Session, dataset_id: str) -> DatasetRecord:
         return get_dataset_or_404(db, dataset_id)
     except DatasetNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Dataset not found") from exc
+
+
+def _unlink_dataset_file(path_value: str, storage_root: Path) -> None:
+    candidate = Path(path_value).resolve()
+    allowed_root = storage_root.resolve()
+    if not candidate.is_relative_to(allowed_root):
+        logger.error("Refusing to delete dataset file outside storage root: %s", candidate)
+        return
+    try:
+        candidate.unlink(missing_ok=True)
+    except OSError:
+        logger.exception("Could not remove dataset file: %s", candidate)
 
 
 async def _store_upload(file: UploadFile, destination: Path) -> int:
@@ -139,6 +157,25 @@ async def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get
 def list_datasets(db: Session = Depends(get_db)) -> list[DatasetOut]:
     records = db.query(DatasetRecord).order_by(DatasetRecord.created_at.desc()).all()
     return [_dataset_out(record) for record in records]
+
+
+@router.delete("/datasets/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_dataset(dataset_id: str, db: Session = Depends(get_db)) -> Response:
+    record = _handle_lookup(db, dataset_id)
+    raw_path = record.raw_path
+    cleaned_path = record.cleaned_path
+    try:
+        db.delete(record)
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Could not delete dataset metadata for %s", dataset_id)
+        raise HTTPException(status_code=500, detail="Could not delete dataset.") from exc
+
+    clear_dataset_cache()
+    _unlink_dataset_file(raw_path, settings.upload_dir)
+    _unlink_dataset_file(cleaned_path, settings.dataset_dir)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/datasets/{dataset_id}/summary", response_model=SummaryResponse)

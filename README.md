@@ -6,7 +6,7 @@ AI Energy Data Analyst is a full-stack renewable-energy operations tool built fo
 
 Renewable operations data is often spread across telemetry exports with inconsistent column names, missing readings, duplicated events, and unclear status semantics. Analysts need a repeatable way to assess production, identify assets that deserve attention, estimate future output, and communicate findings without allowing an LLM to execute arbitrary code or invent calculations.
 
-This project keeps calculations deterministic in Python. The optional OpenAI layer classifies questions into approved intents and explains verified aggregate findings through Pydantic-validated structured outputs.
+This project keeps calculations deterministic in Python. The optional Gemini layer classifies ambiguous questions into approved intents and explains verified aggregate findings through Pydantic-validated structured outputs.
 
 ## Deployment Preview
 
@@ -42,11 +42,13 @@ The URL becomes available after the Blueprint is connected and the first deploym
 - safe question routing for approved analysis functions, including month-aware asset comparison, largest daily drop, and factor correlations
 - structured business explanations covering what happened, why it matters, a possible reason, and the next action
 - chart-rich HTML report with data quality, KPIs, anomalies, forecast, executive summary, and recommendations
+- permanent dataset deletion for database metadata, raw uploads, and cleaned files
+- bounded caching and anomaly sampling for multi-million-row datasets
 - SQLite locally, PostgreSQL in Docker and Render, plus Docker Compose, pytest, Ruff, and GitHub Actions
 
 ## Tech Stack
 
-Backend: Python 3.12, FastAPI, pandas, NumPy, scikit-learn, statsmodels, OpenAI Python SDK, Pydantic, SQLAlchemy, SQLite/PostgreSQL
+Backend: Python 3.12, FastAPI, pandas, NumPy, scikit-learn, statsmodels, Google Gen AI SDK, Pydantic, SQLAlchemy, SQLite/PostgreSQL
 
 Frontend: Next.js 16, React 19, TypeScript, Recharts, lucide-react
 
@@ -61,13 +63,13 @@ flowchart LR
   API --> Clean["Cleaning and column mapping"]
   API --> Analytics["KPI, anomaly, and forecast services"]
   API --> Router["Approved question router"]
-  Router --> AI["Optional OpenAI structured explanations"]
+  Router --> AI["Optional Gemini structured explanations"]
   API --> Report["HTML report generator"]
   API --> DB[("SQLite or PostgreSQL")]
   API --> Files["Clean CSV storage"]
 ```
 
-The OpenAI API never receives the full uploaded dataset. It receives only bounded, computed findings. When `OPENAI_API_KEY` is absent or an API request fails, the same endpoint returns a transparent deterministic explanation with `source: "rules"`.
+The Gemini API never receives the full uploaded dataset. It receives only bounded, computed findings. Recognized questions use the local rules router immediately. When `GEMINI_API_KEY` is absent, Gemini times out, or an API request fails, the same endpoint returns a transparent deterministic explanation with `source: "rules"`.
 
 ## Project Structure
 
@@ -106,7 +108,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Interactive API documentation is available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
-Copy `.env.example` to `.env` only when you need configuration changes. Add `OPENAI_API_KEY` to enable OpenAI-assisted intent classification, explanations, and executive summaries. Keep the key server-side; the app remains fully functional without it.
+Copy `.env.example` to `.env` only when you need configuration changes. Add `GEMINI_API_KEY` to enable Gemini-assisted intent classification, explanations, and executive summaries. Keep the key server-side; the app remains fully functional without it.
 
 ## Docker Setup
 
@@ -114,7 +116,7 @@ Copy `.env.example` to `.env` only when you need configuration changes. Add `OPE
 docker compose up --build
 ```
 
-This starts PostgreSQL, FastAPI, and Next.js at the same local URLs. Docker Compose forwards `OPENAI_API_KEY` from your environment when it is set.
+This starts PostgreSQL, FastAPI, and Next.js at the same local URLs. Docker Compose forwards `GEMINI_API_KEY` from your environment when it is set.
 
 ## API
 
@@ -122,6 +124,7 @@ This starts PostgreSQL, FastAPI, and Next.js at the same local URLs. Docker Comp
 | --- | --- | --- |
 | POST | `/api/upload` | Upload and clean CSV or Excel data |
 | GET | `/api/datasets` | List saved dataset metadata |
+| DELETE | `/api/datasets/{id}` | Permanently remove a dataset and its stored files |
 | GET | `/api/datasets/{id}/summary` | Inspect columns, types, missing values, cleaning, and samples |
 | GET | `/api/datasets/{id}/kpis` | Calculate energy and asset KPIs |
 | GET | `/api/datasets/{id}/charts` | Return chart-ready aggregate series |
@@ -170,7 +173,7 @@ CI runs the same checks for every pull request. The backend suite covers cleanin
 1. Push the repository to GitHub.
 2. In Render, create a Blueprint and select this repository.
 3. Confirm the three resources from `render.yaml`.
-4. Provide `OPENAI_API_KEY` when prompted, or leave it empty to use rules-based explanations.
+4. Provide `GEMINI_API_KEY` when prompted, or leave it empty to use rules-based explanations.
 5. After the first deploy, verify `/api/health`, upload the sample dataset, and open the generated report.
 
 The Blueprint keeps the API key out of source control, injects the managed PostgreSQL connection string, waits for passing GitHub checks before auto-deploying, and uses health checks for both web services.
