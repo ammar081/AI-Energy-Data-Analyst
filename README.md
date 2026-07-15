@@ -36,6 +36,9 @@ The URL becomes available after the Blueprint is connected and the first deploym
 - column standardization, datetime and numeric inference, duplicate removal, missing-value repair, invalid negative handling, and outlier evidence
 - original and cleaned row counts, inferred dtypes, per-column missing values, analysis mapping, and sample-row inspection
 - total, average daily, peak, lowest, capacity factor, status-aware downtime, original missing-data percentage, and asset rankings
+- direct or calculated average efficiency using efficiency, expected-output, or capacity columns
+- demand-specific consumption, peak demand, load factor, variability, peak-period, and demand-forecast analysis
+- maintenance work-order backlog, repair duration, cost, availability, event-type, and asset-reliability analysis
 - daily production, asset comparison, weather relationship, anomaly overlay, and forecast charts
 - z-score, rolling-average, Isolation Forest, good-weather/low-output, repeated-zero, missing-telemetry, and telemetry-gap detection
 - 7, 14, and 30 day forecasts with Holt-Winters, regression, or moving-average fallback, confidence ranges, MAE, and RMSE
@@ -43,12 +46,18 @@ The URL becomes available after the Blueprint is connected and the first deploym
 - structured business explanations covering what happened, why it matters, a possible reason, and the next action
 - chart-rich HTML report with data quality, KPIs, anomalies, forecast, executive summary, and recommendations
 - permanent dataset deletion for database metadata, raw uploads, and cleaned files
+- JWT authentication with administrator, analyst, and viewer permissions
+- administrator workspace for user roles, account status, usage totals, datasets, and reports
+- fleet comparison for two to six datasets with domain-aware ranking
+- Redis-backed Celery report jobs with immediate execution for simple local Python runs
+- vector-ranked search across stored report findings and recommendations
+- authenticated live telemetry simulation with expected-value and deviation tracking
 - bounded caching and anomaly sampling for multi-million-row datasets
 - SQLite locally, PostgreSQL in Docker and Render, plus Docker Compose, pytest, Ruff, and GitHub Actions
 
 ## Tech Stack
 
-Backend: Python 3.12, FastAPI, pandas, NumPy, scikit-learn, statsmodels, Google Gen AI SDK, Pydantic, SQLAlchemy, SQLite/PostgreSQL
+Backend: Python 3.12, FastAPI, pandas, NumPy, scikit-learn, statsmodels, Google Gen AI SDK, Pydantic, SQLAlchemy, SQLite/PostgreSQL, Celery, Redis
 
 Frontend: Next.js 16, React 19, TypeScript, Recharts, lucide-react
 
@@ -58,13 +67,17 @@ Quality and delivery: pytest, Ruff, Docker, Docker Compose, GitHub Actions, Rend
 
 ```mermaid
 flowchart LR
-  User["Analyst"] --> UI["Next.js dashboard"]
+  User["Admin, analyst, or viewer"] --> Auth["JWT authentication"]
+  Auth --> UI["Next.js dashboard"]
   UI --> API["FastAPI API"]
   API --> Clean["Cleaning and column mapping"]
   API --> Analytics["KPI, anomaly, and forecast services"]
   API --> Router["Approved question router"]
   Router --> AI["Optional Gemini structured explanations"]
   API --> Report["HTML report generator"]
+  Report --> Worker["Celery worker"]
+  Worker --> Search["Report vector index"]
+  API --> Stream["Telemetry WebSocket"]
   API --> DB[("SQLite or PostgreSQL")]
   API --> Files["Clean CSV storage"]
 ```
@@ -106,7 +119,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Interactive API documentation is available at [http://localhost:8000/docs](http://localhost:8000/docs).
+Open [http://localhost:3000](http://localhost:3000). Create the first account to establish the workspace administrator; later registrations receive the analyst role until an administrator changes them. Interactive API documentation is available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
 Copy `.env.example` to `.env` only when you need configuration changes. Add `GEMINI_API_KEY` to enable Gemini-assisted intent classification, explanations, and executive summaries. Keep the key server-side; the app remains fully functional without it.
 
@@ -116,12 +129,23 @@ Copy `.env.example` to `.env` only when you need configuration changes. Add `GEM
 docker compose up --build
 ```
 
-This starts PostgreSQL, FastAPI, and Next.js at the same local URLs. Docker Compose forwards `GEMINI_API_KEY` from your environment when it is set.
+This starts PostgreSQL, Redis, FastAPI, a Celery worker, and Next.js at the same local URLs. Docker Compose forwards `GEMINI_API_KEY` from your environment when it is set. Direct Python runs use eager Celery execution by default, so Redis is not required outside Docker.
+
+Role permissions:
+
+| Role | Access |
+| --- | --- |
+| Viewer | Dashboards, data quality, forecasts, questions, comparisons, reports, and live telemetry |
+| Analyst | Viewer access plus uploads and background report generation |
+| Admin | Full access plus deletion, user roles, account status, and workspace statistics |
 
 ## API
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
+| POST | `/api/auth/register` | Create an account; the first account becomes administrator |
+| POST | `/api/auth/login` | Issue a signed bearer token |
+| GET | `/api/auth/me` | Return the authenticated user |
 | POST | `/api/upload` | Upload and clean CSV or Excel data |
 | GET | `/api/datasets` | List saved dataset metadata |
 | DELETE | `/api/datasets/{id}` | Permanently remove a dataset and its stored files |
@@ -132,6 +156,15 @@ This starts PostgreSQL, FastAPI, and Next.js at the same local URLs. Docker Comp
 | GET | `/api/datasets/{id}/forecast?days=14` | Forecast 7, 14, or 30 days |
 | POST | `/api/datasets/{id}/ask` | Run a safe natural-language analysis intent |
 | GET | `/api/datasets/{id}/report` | Generate the HTML performance report |
+| GET | `/api/datasets/{id}/demand` | Calculate demand metrics and a demand forecast |
+| GET | `/api/datasets/{id}/maintenance` | Analyze work orders, repair time, cost, and availability |
+| GET | `/api/comparison?dataset_ids={id}` | Compare two to six datasets |
+| POST | `/api/datasets/{id}/reports` | Queue a stored report job |
+| GET | `/api/jobs/{job_id}` | Inspect background job status |
+| GET | `/api/reports/search?q={query}` | Vector-rank stored report passages |
+| WS | `/api/telemetry/{id}/stream` | Stream authenticated simulated telemetry |
+| GET | `/api/admin/users` | List users for administrators |
+| GET | `/api/admin/stats` | Return administrator workspace totals |
 
 ## Example Questions
 
@@ -166,7 +199,7 @@ npm run typecheck
 npm run build
 ```
 
-CI runs the same checks for every pull request. The backend suite covers cleaning evidence, KPI semantics, advanced forecasting, anomaly rules, safe question behavior, report sections, upload limits, and the complete API workflow.
+CI runs the same checks for every pull request. The 23-test backend suite covers cleaning evidence, role permissions, generation and demand KPIs, maintenance work orders, advanced forecasting, anomaly rules, safe question behavior, report jobs, vector search, upload limits, and complete API workflows.
 
 ## Deployment
 
@@ -180,10 +213,8 @@ The Blueprint keeps the API key out of source control, injects the managed Postg
 
 ## Future Improvements
 
-- user accounts and role-based plant access
-- object storage for large uploads and generated reports
-- background jobs for large files and batch forecasts
+- object storage for durable cloud uploads and generated reports
+- email verification, password recovery, and plant-level access policies
 - forecast model registry and automated drift monitoring
-- maintenance-log joins and work-order recommendations
-- multi-dataset comparison and fleet benchmarks
-- streaming telemetry ingestion and alert notifications
+- external CMMS synchronization for work-order updates
+- production telemetry ingestion and alert notifications

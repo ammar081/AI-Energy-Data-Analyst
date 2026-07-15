@@ -3,6 +3,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from app.services.operations_service import analyze_demand, analyze_maintenance, compute_average_efficiency
+
 
 def _round(value: float | int | None, digits: int = 2) -> float | None:
     if value is None or pd.isna(value):
@@ -29,9 +31,13 @@ def compute_kpis(frame: pd.DataFrame, profile: dict[str, Any]) -> dict[str, Any]
     capacity_column = profile.get("capacity_column")
     status_column = profile.get("status_column")
     missing_percentage = _round(float(profile.get("original_missing_percentage") or 0)) or 0
+    dataset_type = str(profile.get("dataset_type") or "generation")
+    demand = analyze_demand(frame, profile)
+    maintenance = analyze_maintenance(frame, profile) if dataset_type == "maintenance" else {}
 
     if not value_column or value_column not in frame.columns:
         return {
+            "metric_type": dataset_type,
             "value_column": None,
             "datetime_column": datetime_column,
             "total_output": 0,
@@ -39,12 +45,22 @@ def compute_kpis(frame: pd.DataFrame, profile: dict[str, Any]) -> dict[str, Any]
             "peak_output": None,
             "lowest_output": None,
             "capacity_factor": None,
+            "average_efficiency": compute_average_efficiency(frame, profile),
             "downtime_hours": None,
             "downtime_basis": "not_available",
             "missing_data_percentage": missing_percentage,
             "best_performing_asset": None,
             "underperforming_asset": None,
             "asset_performance": [],
+            "peak_demand": demand.get("peak_demand"),
+            "average_demand": demand.get("average_demand"),
+            "demand_variability": demand.get("demand_variability"),
+            "load_factor": demand.get("load_factor"),
+            "maintenance_events": maintenance.get("maintenance_events"),
+            "open_work_orders": maintenance.get("open_work_orders"),
+            "average_repair_hours": maintenance.get("average_repair_hours"),
+            "maintenance_cost": maintenance.get("maintenance_cost"),
+            "availability_percentage": maintenance.get("availability_percentage"),
         }
 
     values = pd.to_numeric(frame[value_column], errors="coerce")
@@ -107,6 +123,7 @@ def compute_kpis(frame: pd.DataFrame, profile: dict[str, Any]) -> dict[str, Any]
             worst_asset = asset_performance[-1]
 
     return {
+        "metric_type": dataset_type,
         "value_column": str(value_column),
         "datetime_column": str(datetime_column) if datetime_column else None,
         "total_output": total_output or 0,
@@ -114,10 +131,20 @@ def compute_kpis(frame: pd.DataFrame, profile: dict[str, Any]) -> dict[str, Any]
         "peak_output": peak_output,
         "lowest_output": lowest_output,
         "capacity_factor": capacity_factor,
+        "average_efficiency": compute_average_efficiency(frame, profile),
         "downtime_hours": downtime_hours,
         "downtime_basis": downtime_basis,
         "missing_data_percentage": missing_percentage,
         "best_performing_asset": best_asset,
         "underperforming_asset": worst_asset,
         "asset_performance": asset_performance,
+        "peak_demand": demand.get("peak_demand"),
+        "average_demand": demand.get("average_demand"),
+        "demand_variability": demand.get("demand_variability"),
+        "load_factor": demand.get("load_factor"),
+        "maintenance_events": maintenance.get("maintenance_events"),
+        "open_work_orders": maintenance.get("open_work_orders"),
+        "average_repair_hours": maintenance.get("average_repair_hours"),
+        "maintenance_cost": maintenance.get("maintenance_cost"),
+        "availability_percentage": maintenance.get("availability_percentage"),
     }

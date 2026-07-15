@@ -21,6 +21,12 @@ services:
         value: gemini-3.5-flash
       - key: GEMINI_API_KEY
         sync: false
+      - key: AUTH_SECRET_KEY
+        generateValue: true
+      - key: ALLOW_SELF_REGISTRATION
+        value: true
+      - key: CELERY_TASK_ALWAYS_EAGER
+        value: true
 
   - type: web
     name: ammar081-energy-analyst

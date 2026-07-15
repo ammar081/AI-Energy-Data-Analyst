@@ -83,6 +83,7 @@ def forecast_output(frame: pd.DataFrame, profile: dict[str, Any], horizon_days: 
     horizon_days = max(1, min(int(horizon_days), 30))
     value_column = profile.get("value_column")
     datetime_column = profile.get("datetime_column")
+    metric_label = "demand" if profile.get("dataset_type") == "demand" else "output"
     if not value_column or value_column not in frame.columns:
         return _empty_forecast(horizon_days, None, "No numeric output column was available for forecasting.")
 
@@ -125,7 +126,7 @@ def forecast_output(frame: pd.DataFrame, profile: dict[str, Any], horizon_days: 
         "forecast": forecast_rows,
         "metrics": {"mae": round(mae, 2) if mae is not None else None, "rmse": round(rmse, 2) if rmse is not None else None},
         "summary": (
-            f"The {horizon_days}-day outlook is {direction}, with average predicted output of "
+            f"The {horizon_days}-day {metric_label} outlook is {direction}, with average predicted {metric_label} of "
             f"{round(float(np.mean(predicted)), 2)} using {method.replace('_', ' ')}."
         ),
     }

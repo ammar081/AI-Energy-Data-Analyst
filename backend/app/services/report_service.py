@@ -8,6 +8,7 @@ from app.services.anomaly_service import detect_anomalies
 from app.services.chart_service import build_charts
 from app.services.forecast_service import forecast_output
 from app.services.kpi_service import compute_kpis
+from app.services.operations_service import analyze_demand, analyze_maintenance
 
 
 def _format(value: Any) -> str:
@@ -83,6 +84,10 @@ def _rule_recommendations(kpis: dict[str, Any], anomalies: list[dict[str, Any]],
         recommendations.append(f"Compare {asset} with peer assets under similar operating conditions before scheduling maintenance.")
     if "downward" in forecast.get("summary", "").lower():
         recommendations.append("Include the downward forecast range in near-term delivery and maintenance planning.")
+    if (kpis.get("open_work_orders") or 0) > 0:
+        recommendations.append("Prioritize open work orders by asset downtime, criticality, and repair duration.")
+    if (kpis.get("load_factor") or 100) < 50:
+        recommendations.append("Review peak demand periods and evaluate load shifting opportunities.")
     if len(recommendations) < 2:
         recommendations.append("Refresh the analysis when new production data arrives and monitor KPI movement against this baseline.")
     return recommendations[:5]
@@ -90,8 +95,20 @@ def _rule_recommendations(kpis: dict[str, Any], anomalies: list[dict[str, Any]],
 
 def generate_html_report(frame: pd.DataFrame, profile: dict[str, Any], dataset_name: str) -> str:
     kpis = compute_kpis(frame, profile)
+    dataset_type = str(profile.get("dataset_type") or "generation")
+    demand = analyze_demand(frame, profile)
+    maintenance = analyze_maintenance(frame, profile) if dataset_type == "maintenance" else {}
     anomalies = detect_anomalies(frame, profile, limit=10)
-    forecast = forecast_output(frame, profile, horizon_days=7)
+    forecast = (
+        forecast_output(frame, profile, horizon_days=7)
+        if dataset_type != "maintenance"
+        else {
+            "summary": "Forecasting is not applied to maintenance event logs.",
+            "history": [],
+            "forecast": [],
+            "metrics": {"mae": None, "rmse": None},
+        }
+    )
     charts = build_charts(frame, profile)
     cleaning = profile.get("cleaning_report") or {}
 
@@ -106,14 +123,33 @@ def generate_html_report(frame: pd.DataFrame, profile: dict[str, Any], dataset_n
         "kpis": {key: value for key, value in kpis.items() if key != "asset_performance"},
         "top_anomalies": anomalies[:5],
         "forecast": {"summary": forecast["summary"], "metrics": forecast["metrics"]},
+        "demand": demand,
+        "maintenance": maintenance,
     }
     ai_report = generate_executive_report(findings)
     recommendations = ai_report.recommendations if ai_report else _rule_recommendations(kpis, anomalies, forecast)
-    summary = ai_report.summary if ai_report else (
-        f"The dataset contains {len(frame):,} cleaned records. Total output is {_format(kpis['total_output'])}, "
-        f"peak output is {_format(kpis.get('peak_output'))}, and downtime is estimated at "
-        f"{_format(kpis.get('downtime_hours'))} hours. {forecast['summary']}"
-    )
+    if ai_report:
+        summary = ai_report.summary
+    elif dataset_type == "maintenance":
+        summary = (
+            f"The maintenance log contains {maintenance.get('maintenance_events', 0):,} events, including "
+            f"{_format(maintenance.get('open_work_orders'))} open work orders. Average repair time is "
+            f"{_format(maintenance.get('average_repair_hours'))} hours and recorded maintenance cost is "
+            f"{_format(maintenance.get('maintenance_cost'))}."
+        )
+    elif dataset_type == "demand":
+        summary = (
+            f"The demand dataset contains {len(frame):,} cleaned records. Peak demand is "
+            f"{_format(demand.get('peak_demand'))}, average demand is {_format(demand.get('average_demand'))}, "
+            f"and load factor is {_format(demand.get('load_factor'))} percent. {forecast['summary']}"
+        )
+    else:
+        summary = (
+            f"The dataset contains {len(frame):,} cleaned records. Total output is {_format(kpis['total_output'])}, "
+            f"peak output is {_format(kpis.get('peak_output'))}, average efficiency is "
+            f"{_format(kpis.get('average_efficiency'))} percent, and downtime is estimated at "
+            f"{_format(kpis.get('downtime_hours'))} hours. {forecast['summary']}"
+        )
     summary_source = "Gemini structured analysis" if ai_report else "Deterministic analytics fallback"
 
     anomaly_rows = "".join(
@@ -133,9 +169,48 @@ def generate_html_report(frame: pd.DataFrame, profile: dict[str, Any], dataset_n
 
     history_values = [float(item["value"]) for item in forecast["history"]]
     forecast_values = [float(item["predicted_value"]) for item in forecast["forecast"]]
-    output_chart = _line_svg([("Historical output", history_values)], "Recent energy generation")
-    forecast_chart = _line_svg([("Forecast", forecast_values)], "7 day output forecast")
-    asset_chart = _bar_svg(charts.get("asset_comparison", []), "Asset production comparison")
+    metric_label = "demand" if dataset_type == "demand" else "output"
+    output_chart = _line_svg([(f"Historical {metric_label}", history_values)], f"Recent {metric_label}")
+    forecast_chart = _line_svg([("Forecast", forecast_values)], f"7 day {metric_label} forecast")
+    asset_chart = _bar_svg(charts.get("asset_comparison", []), "Asset comparison")
+    if dataset_type == "maintenance":
+        metric_cards = f"""
+    <div class="metric">Maintenance Events<strong>{_format(maintenance.get('maintenance_events'))}</strong></div>
+    <div class="metric">Open Work Orders<strong>{_format(maintenance.get('open_work_orders'))}</strong></div>
+    <div class="metric">Average Repair Hours<strong>{_format(maintenance.get('average_repair_hours'))}</strong></div>
+    <div class="metric">Total Downtime<strong>{_format(maintenance.get('total_downtime_hours'))}</strong></div>
+    <div class="metric">Maintenance Cost<strong>{_format(maintenance.get('maintenance_cost'))}</strong></div>
+    <div class="metric">Availability<strong>{_format(maintenance.get('availability_percentage'))}%</strong></div>
+    <div class="metric">Missing Data<strong>{_format(kpis.get('missing_data_percentage'))}%</strong></div>
+    <div class="metric">Affected Assets<strong>{_format(len(maintenance.get('asset_reliability', [])))}</strong></div>"""
+    elif dataset_type == "demand":
+        metric_cards = f"""
+    <div class="metric">Total Consumption<strong>{_format(demand.get('total_consumption'))}</strong></div>
+    <div class="metric">Peak Demand<strong>{_format(demand.get('peak_demand'))}</strong></div>
+    <div class="metric">Average Demand<strong>{_format(demand.get('average_demand'))}</strong></div>
+    <div class="metric">Load Factor<strong>{_format(demand.get('load_factor'))}%</strong></div>
+    <div class="metric">Demand Variability<strong>{_format(demand.get('demand_variability'))}%</strong></div>
+    <div class="metric">Average Efficiency<strong>{_format(kpis.get('average_efficiency'))}%</strong></div>
+    <div class="metric">Missing Data<strong>{_format(kpis.get('missing_data_percentage'))}%</strong></div>
+    <div class="metric">Forecast RMSE<strong>{_format(forecast['metrics'].get('rmse'))}</strong></div>"""
+    else:
+        metric_cards = f"""
+    <div class="metric">Total Output<strong>{_format(kpis['total_output'])}</strong></div>
+    <div class="metric">Average Daily<strong>{_format(kpis.get('average_daily_output'))}</strong></div>
+    <div class="metric">Peak Output<strong>{_format(kpis.get('peak_output'))}</strong></div>
+    <div class="metric">Downtime Hours<strong>{_format(kpis.get('downtime_hours'))}</strong></div>
+    <div class="metric">Average Efficiency<strong>{_format(kpis.get('average_efficiency'))}%</strong></div>
+    <div class="metric">Capacity Factor<strong>{_format(kpis.get('capacity_factor'))}%</strong></div>
+    <div class="metric">Missing Data<strong>{_format(kpis.get('missing_data_percentage'))}%</strong></div>
+    <div class="metric">Forecast RMSE<strong>{_format(forecast['metrics'].get('rmse'))}</strong></div>"""
+    forecast_section = "" if dataset_type == "maintenance" else f"""
+  <h2>7 Day Forecast</h2>
+  <p>{escape(forecast['summary'])} MAE: {_format(forecast['metrics'].get('mae'))}; RMSE: {_format(forecast['metrics'].get('rmse'))}.</p>
+  {forecast_chart}
+  <table>
+    <thead><tr><th>Date</th><th>Prediction</th><th>Lower</th><th>Upper</th></tr></thead>
+    <tbody>{forecast_rows}</tbody>
+  </table>"""
 
     return f"""<!doctype html>
 <html lang="en">
@@ -173,14 +248,7 @@ def generate_html_report(frame: pd.DataFrame, profile: dict[str, Any], dataset_n
   <p class="source">Summary source: {escape(summary_source)}</p>
 
   <section class="grid">
-    <div class="metric">Total Output<strong>{_format(kpis['total_output'])}</strong></div>
-    <div class="metric">Average Daily<strong>{_format(kpis.get('average_daily_output'))}</strong></div>
-    <div class="metric">Peak Output<strong>{_format(kpis.get('peak_output'))}</strong></div>
-    <div class="metric">Downtime Hours<strong>{_format(kpis.get('downtime_hours'))}</strong></div>
-    <div class="metric">Lowest Output<strong>{_format(kpis.get('lowest_output'))}</strong></div>
-    <div class="metric">Capacity Factor<strong>{_format(kpis.get('capacity_factor'))}%</strong></div>
-    <div class="metric">Missing Data<strong>{_format(kpis.get('missing_data_percentage'))}%</strong></div>
-    <div class="metric">Forecast RMSE<strong>{_format(forecast['metrics'].get('rmse'))}</strong></div>
+    {metric_cards}
   </section>
 
   <h2>Dataset and Cleaning Summary</h2>
@@ -204,13 +272,7 @@ def generate_html_report(frame: pd.DataFrame, profile: dict[str, Any], dataset_n
     <tbody>{anomaly_rows}</tbody>
   </table>
 
-  <h2>7 Day Forecast</h2>
-  <p>{escape(forecast['summary'])} MAE: {_format(forecast['metrics'].get('mae'))}; RMSE: {_format(forecast['metrics'].get('rmse'))}.</p>
-  {forecast_chart}
-  <table>
-    <thead><tr><th>Date</th><th>Prediction</th><th>Lower</th><th>Upper</th></tr></thead>
-    <tbody>{forecast_rows}</tbody>
-  </table>
+  {forecast_section}
 
   <h2>Recommended Actions</h2>
   <ol>{recommendation_rows}</ol>

@@ -15,6 +15,17 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -24,6 +35,10 @@ services:
       ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-local-development-secret-change-me}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_TASK_ALWAYS_EAGER: "false"
     ports:
       - "8000:8000"
     volumes:
@@ -31,6 +46,30 @@ services:
       - ./reports:/app/reports
     depends_on:
       db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A app.tasks.celery_app:celery_app worker --loglevel=info --concurrency=2
+    environment:
+      DATABASE_URL: postgresql+psycopg://energy:energy@db:5432/energy_analytics
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-local-development-secret-change-me}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_TASK_ALWAYS_EAGER: "false"
+    volumes:
+      - ./storage:/app/storage
+      - ./reports:/app/reports
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   frontend:
@@ -46,3 +85,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:

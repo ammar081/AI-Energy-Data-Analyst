@@ -33,7 +33,7 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    from app.models.db import DatasetRecord
+    from app.models.db import DatasetRecord, ReportRecord, UserRecord
 
-    _ = DatasetRecord
+    _ = (DatasetRecord, ReportRecord, UserRecord)
     Base.metadata.create_all(bind=engine)

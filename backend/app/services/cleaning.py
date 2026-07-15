@@ -5,7 +5,20 @@ import pandas as pd
 
 from app.services.column_mapper import infer_columns, standardize_columns
 
-NON_NEGATIVE_HINTS = ("energy", "power", "yield", "generation", "output", "irradiation", "irradiance")
+NON_NEGATIVE_HINTS = (
+    "energy",
+    "power",
+    "yield",
+    "generation",
+    "output",
+    "irradiation",
+    "irradiance",
+    "demand",
+    "load",
+    "consumption",
+    "duration",
+    "cost",
+)
 
 
 def _convert_numeric_columns(frame: pd.DataFrame, protected_columns: set[str]) -> pd.DataFrame:
@@ -96,7 +109,18 @@ def clean_dataset(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
     else:
         invalid_timestamps = 0
 
-    protected_columns = {column for column in [datetime_column, preliminary_map.asset_column, preliminary_map.status_column] if column}
+    protected_columns = {
+        column
+        for column in [
+            datetime_column,
+            preliminary_map.asset_column,
+            preliminary_map.status_column,
+            preliminary_map.work_order_column,
+            preliminary_map.maintenance_type_column,
+            preliminary_map.priority_column,
+        ]
+        if column
+    }
     cleaned = _convert_numeric_columns(cleaned, protected_columns)
 
     negative_replacements = 0

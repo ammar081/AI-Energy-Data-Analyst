@@ -1,6 +1,6 @@
 # Dataset Sources
 
-The committed `sample/solar_operations_sample.csv` file is synthetic demo data created for this project. It is safe to publish and is not presented as measured plant telemetry.
+The committed generation, demand, and maintenance CSV files under `sample/` are synthetic demo data created for this project. They are safe to publish and are not presented as measured plant telemetry.
 
 For larger portfolio experiments, download data from the provider and keep its original license or attribution file beside your local copy. Large raw datasets should not be committed to this repository.
 
@@ -18,4 +18,6 @@ For larger portfolio experiments, download data from the provider and keep its o
 
 ## Useful Columns
 
-The analyzer works best when a file includes a timestamp, an output metric, and an asset identifier. Capacity, status, irradiation, temperature, wind, and humidity fields unlock additional KPIs and explanations.
+Generation analysis works best with a timestamp, output metric, and asset identifier. Capacity, expected output, efficiency, status, irradiation, temperature, wind, and humidity unlock additional KPIs.
+
+Demand analysis recognizes columns such as `demand`, `load`, `consumption`, and `grid_import`. Maintenance analysis recognizes work-order IDs, asset IDs, event type, status, priority, repair or downtime hours, and cost.

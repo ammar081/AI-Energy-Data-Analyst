@@ -4,13 +4,17 @@ import {
   AlertTriangle,
   BarChart3,
   Brain,
+  Columns3,
   Database,
   FileText,
   Gauge,
+  LogOut,
   LineChart as LineChartIcon,
   Loader2,
+  Radio,
   RefreshCcw,
   Search,
+  Settings,
   Trash2,
   UploadCloud,
   Zap
@@ -41,8 +45,19 @@ import {
   Dataset,
   ForecastResponse,
   KPIResponse,
-  SummaryResponse
+  SummaryResponse,
+  DemandAnalysis,
+  getAccessToken,
+  MaintenanceAnalysis,
+  openHtmlDocument,
+  setAccessToken,
+  User
 } from "@/lib/api";
+import { AdminView } from "@/components/AdminView";
+import { AuthScreen } from "@/components/AuthScreen";
+import { ComparisonView } from "@/components/ComparisonView";
+import { LiveTelemetryView } from "@/components/LiveTelemetryView";
+import { ReportsView } from "@/components/ReportsView";
 
 type LoadState = {
   summary: SummaryResponse | null;
@@ -50,9 +65,13 @@ type LoadState = {
   charts: ChartResponse | null;
   anomalies: Anomaly[];
   forecast: ForecastResponse | null;
+  demand: DemandAnalysis | null;
+  maintenance: MaintenanceAnalysis | null;
 };
 
-const emptyState: LoadState = { summary: null, kpis: null, charts: null, anomalies: [], forecast: null };
+const emptyState: LoadState = { summary: null, kpis: null, charts: null, anomalies: [], forecast: null, demand: null, maintenance: null };
+
+type View = "overview" | "quality" | "compare" | "reports" | "live" | "admin";
 
 function formatNumber(value: number | null | undefined, suffix = "") {
   if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
@@ -152,12 +171,70 @@ function DataQualityView({ summary }: { summary: SummaryResponse }) {
   );
 }
 
+function DomainMetrics({ kpis }: { kpis: KPIResponse | null }) {
+  if (kpis?.metric_type === "maintenance") {
+    return <section className="metrics-grid">
+      <MetricTile label="Maintenance events" value={formatNumber(kpis.maintenance_events)} />
+      <MetricTile label="Open work orders" value={formatNumber(kpis.open_work_orders)} accent="amber" />
+      <MetricTile label="Average repair time" value={formatNumber(kpis.average_repair_hours, " h")} accent="teal" />
+      <MetricTile label="Maintenance cost" value={formatNumber(kpis.maintenance_cost)} accent="red" />
+      <MetricTile label="Availability" value={formatNumber(kpis.availability_percentage, "%")} />
+      <MetricTile label="Downtime" value={formatNumber(kpis.downtime_hours, " h")} accent="red" />
+      <MetricTile label="Missing data" value={formatNumber(kpis.missing_data_percentage, "%")} accent="amber" />
+      <MetricTile label="Average efficiency" value={formatNumber(kpis.average_efficiency, "%")} accent="teal" />
+    </section>;
+  }
+  if (kpis?.metric_type === "demand" || kpis?.metric_type === "generation_and_demand") {
+    return <section className="metrics-grid">
+      <MetricTile label="Total consumption" value={formatNumber(kpis.total_output)} />
+      <MetricTile label="Peak demand" value={formatNumber(kpis.peak_demand)} accent="red" />
+      <MetricTile label="Average demand" value={formatNumber(kpis.average_demand)} accent="teal" />
+      <MetricTile label="Load factor" value={formatNumber(kpis.load_factor, "%")} accent="amber" />
+      <MetricTile label="Demand variability" value={formatNumber(kpis.demand_variability, "%")} />
+      <MetricTile label="Average efficiency" value={formatNumber(kpis.average_efficiency, "%")} accent="teal" />
+      <MetricTile label="Missing data" value={formatNumber(kpis.missing_data_percentage, "%")} accent="amber" />
+      <MetricTile label="Lowest demand" value={formatNumber(kpis.lowest_output)} accent="green" />
+    </section>;
+  }
+  return <section className="metrics-grid">
+    <MetricTile label="Total output" value={formatNumber(kpis?.total_output)} />
+    <MetricTile label="Average daily" value={formatNumber(kpis?.average_daily_output)} accent="teal" />
+    <MetricTile label="Peak output" value={formatNumber(kpis?.peak_output)} accent="amber" />
+    <MetricTile label="Average efficiency" value={formatNumber(kpis?.average_efficiency, "%")} accent="teal" />
+    <MetricTile label="Capacity factor" value={formatNumber(kpis?.capacity_factor, "%")} />
+    <MetricTile label="Downtime hours" value={formatNumber(kpis?.downtime_hours)} detail={kpis?.downtime_basis?.replaceAll("_", " ")} accent="red" />
+    <MetricTile label="Missing data" value={formatNumber(kpis?.missing_data_percentage, "%")} accent="amber" />
+    <MetricTile label="Best asset" value={kpis?.best_performing_asset?.asset ?? "n/a"} detail={kpis?.underperforming_asset ? `Needs attention: ${kpis.underperforming_asset.asset}` : undefined} accent="green" />
+  </section>;
+}
+
+function DomainOperations({ state }: { state: LoadState }) {
+  if (state.kpis?.metric_type === "maintenance" && state.maintenance) {
+    return <div className="panel wide">
+      <div className="panel-heading"><div><h3>Maintenance Operations</h3><p>Work orders by asset and event type</p></div><Settings size={20} /></div>
+      <div className="operations-split">
+        <div className="chart-frame"><ResponsiveContainer height={280} width="100%"><BarChart data={state.maintenance.events_by_type}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="type" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="events" fill="#f08c00" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div>
+        <div className="table-wrap"><table><thead><tr><th>Asset</th><th>Events</th><th>Downtime</th><th>Cost</th></tr></thead><tbody>{state.maintenance.asset_reliability.slice(0, 8).map((asset) => <tr key={asset.asset}><td><strong>{asset.asset}</strong></td><td>{asset.events}</td><td>{formatNumber(asset.downtime_hours)}</td><td>{formatNumber(asset.cost)}</td></tr>)}</tbody></table></div>
+      </div>
+    </div>;
+  }
+  if ((state.kpis?.metric_type === "demand" || state.kpis?.metric_type === "generation_and_demand") && state.demand?.demand_column) {
+    return <div className="panel wide">
+      <div className="panel-heading"><div><h3>Demand Profile</h3><p>{state.demand.demand_column.replaceAll("_", " ")}</p></div><Gauge size={20} /></div>
+      <div className="chart-frame"><ResponsiveContainer height={280} width="100%"><LineChart data={state.demand.daily_demand}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" minTickGap={28} /><YAxis /><Tooltip /><Line dataKey="value" dot={false} stroke="#1098ad" strokeWidth={2} /></LineChart></ResponsiveContainer></div>
+    </div>;
+  }
+  return null;
+}
+
 export function EnergyDashboard() {
+  const [user, setUser] = useState<User | null>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [state, setState] = useState<LoadState>(emptyState);
   const [forecastDays, setForecastDays] = useState(7);
-  const [activeView, setActiveView] = useState<"overview" | "quality">("overview");
+  const [activeView, setActiveView] = useState<View>("overview");
   const [question, setQuestion] = useState("Which asset is underperforming?");
   const [answer, setAnswer] = useState<AskResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -180,10 +257,11 @@ export function EnergyDashboard() {
     setIsLoading(true);
     setError("");
     try {
-      const [summary, kpis, charts, anomalies, forecast] = await Promise.all([
-        api.summary(datasetId), api.kpis(datasetId), api.charts(datasetId), api.anomalies(datasetId), api.forecast(datasetId, days)
+      const [summary, kpis, charts, anomalies, forecast, demand, maintenance] = await Promise.all([
+        api.summary(datasetId), api.kpis(datasetId), api.charts(datasetId), api.anomalies(datasetId), api.forecast(datasetId, days),
+        api.demand(datasetId, days), api.maintenance(datasetId)
       ]);
-      setState({ summary, kpis, charts, anomalies, forecast });
+      setState({ summary, kpis, charts, anomalies, forecast, demand, maintenance });
       setAnswer(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load dataset.");
@@ -193,8 +271,12 @@ export function EnergyDashboard() {
     }
   }
 
-  useEffect(() => { loadDatasets().catch((err) => setError(err instanceof Error ? err.message : "Could not load datasets.")); }, []);
-  useEffect(() => { if (selectedId) loadDatasetDetails(selectedId).catch((err) => setError(err instanceof Error ? err.message : "Could not load dataset.")); }, [selectedId]);
+  useEffect(() => {
+    if (!getAccessToken()) { setIsCheckingAuth(false); return; }
+    api.me().then(setUser).catch(() => setAccessToken(null)).finally(() => setIsCheckingAuth(false));
+  }, []);
+  useEffect(() => { if (user) loadDatasets().catch((err) => setError(err instanceof Error ? err.message : "Could not load datasets.")); }, [user]);
+  useEffect(() => { if (user && selectedId) loadDatasetDetails(selectedId).catch((err) => setError(err instanceof Error ? err.message : "Could not load dataset.")); }, [selectedId, user]);
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -263,11 +345,22 @@ export function EnergyDashboard() {
     date: item.timestamp!.slice(0, 10), anomaly: item.actual_value, severity: item.severity, method: item.method
   })), [state.anomalies]);
 
+  function logout() {
+    setAccessToken(null);
+    setUser(null);
+    setDatasets([]);
+    setSelectedId("");
+    setState(emptyState);
+  }
+
+  if (isCheckingAuth) return <main className="auth-shell"><Loader2 className="spin" size={28} /></main>;
+  if (!user) return <AuthScreen onAuthenticated={setUser} />;
+
   return (
     <main className="dashboard-shell">
       <aside className="dataset-panel">
         <div className="brand-block"><div className="brand-mark"><Zap size={22} /></div><div><h1>AI Energy Data Analyst</h1><p>Renewable operations analytics</p></div></div>
-        <label className="upload-control"><UploadCloud size={20} /><span>{isUploading ? "Uploading..." : "Upload CSV or Excel"}</span><input type="file" accept=".csv,.xlsx,.xls" onChange={handleUpload} disabled={isUploading} /></label>
+        {user.role !== "viewer" ? <label className="upload-control"><UploadCloud size={20} /><span>{isUploading ? "Uploading..." : "Upload CSV or Excel"}</span><input type="file" accept=".csv,.xlsx,.xls" onChange={handleUpload} disabled={isUploading} /></label> : null}
         <div className="dataset-list">
           <div className="section-label">Datasets</div>
           {datasets.length === 0 ? <div className="empty-copy">No datasets yet.</div> : datasets.map((dataset) => (
@@ -275,7 +368,7 @@ export function EnergyDashboard() {
               <button className={`dataset-item ${dataset.id === selectedId ? "active" : ""}`} onClick={() => setSelectedId(dataset.id)} type="button">
                 <span>{dataset.original_filename}</span><small>{dataset.row_count} rows | {dataset.column_count} columns</small>
               </button>
-              <button
+              {user.role === "admin" ? <button
                 aria-label={`Delete ${dataset.original_filename}`}
                 className="dataset-delete"
                 disabled={deletingId === dataset.id}
@@ -284,10 +377,11 @@ export function EnergyDashboard() {
                 type="button"
               >
                 {deletingId === dataset.id ? <Loader2 className="spin" size={17} /> : <Trash2 size={17} />}
-              </button>
+              </button> : null}
             </div>
           ))}
         </div>
+        <div className="sidebar-user"><span>{user.full_name.slice(0, 1).toUpperCase()}</span><div><strong>{user.full_name}</strong><small>{user.role}</small></div><button aria-label="Sign out" onClick={logout} title="Sign out" type="button"><LogOut size={17} /></button></div>
       </aside>
 
       <section className="workspace">
@@ -295,7 +389,7 @@ export function EnergyDashboard() {
           <div><p className="eyebrow">{selectedDataset ? formatDate(selectedDataset.created_at) : "Ready"}</p><h2>{selectedDataset?.original_filename ?? "Upload an energy dataset"}</h2></div>
           <div className="header-actions">
             <button aria-label="Refresh analysis" title="Refresh analysis" className="icon-button" onClick={() => selectedId && loadDatasetDetails(selectedId)} disabled={!selectedId || isLoading} type="button">{isLoading ? <Loader2 className="spin" size={18} /> : <RefreshCcw size={18} />}</button>
-            <button className="report-button" onClick={() => selectedId && window.open(api.reportUrl(selectedId), "_blank", "noopener,noreferrer")} disabled={!selectedId} type="button"><FileText size={18} />Report</button>
+            <button className="report-button" onClick={() => selectedId && openHtmlDocument(() => api.reportHtml(selectedId)).catch((err) => setError(err instanceof Error ? err.message : "Could not open report."))} disabled={!selectedId} type="button"><FileText size={18} />Report</button>
           </div>
         </header>
 
@@ -305,22 +399,18 @@ export function EnergyDashboard() {
             <nav className="view-tabs" aria-label="Dataset views">
               <button className={activeView === "overview" ? "active" : ""} onClick={() => setActiveView("overview")} type="button"><Gauge size={17} />Overview</button>
               <button className={activeView === "quality" ? "active" : ""} onClick={() => setActiveView("quality")} type="button"><Database size={17} />Data Quality</button>
+              <button className={activeView === "compare" ? "active" : ""} onClick={() => setActiveView("compare")} type="button"><Columns3 size={17} />Compare</button>
+              <button className={activeView === "reports" ? "active" : ""} onClick={() => setActiveView("reports")} type="button"><FileText size={17} />Reports</button>
+              <button className={activeView === "live" ? "active" : ""} onClick={() => setActiveView("live")} type="button"><Radio size={17} />Live</button>
+              {user.role === "admin" ? <button className={activeView === "admin" ? "active" : ""} onClick={() => setActiveView("admin")} type="button"><Settings size={17} />Admin</button> : null}
             </nav>
 
-            {activeView === "quality" && state.summary ? <DataQualityView summary={state.summary} /> : (
+            {activeView === "quality" && state.summary ? <DataQualityView summary={state.summary} /> : activeView === "compare" ? <ComparisonView datasets={datasets} /> : activeView === "reports" ? <ReportsView dataset={selectedDataset} user={user} /> : activeView === "live" ? <LiveTelemetryView dataset={selectedDataset} /> : activeView === "admin" && user.role === "admin" ? <AdminView currentUser={user} /> : (
               <>
-                <section className="metrics-grid">
-                  <MetricTile label="Total output" value={formatNumber(state.kpis?.total_output)} />
-                  <MetricTile label="Average daily" value={formatNumber(state.kpis?.average_daily_output)} accent="teal" />
-                  <MetricTile label="Peak output" value={formatNumber(state.kpis?.peak_output)} accent="amber" />
-                  <MetricTile label="Lowest output" value={formatNumber(state.kpis?.lowest_output)} accent="red" />
-                  <MetricTile label="Capacity factor" value={formatNumber(state.kpis?.capacity_factor, "%")} />
-                  <MetricTile label="Downtime hours" value={formatNumber(state.kpis?.downtime_hours)} detail={state.kpis?.downtime_basis?.replaceAll("_", " ")} accent="red" />
-                  <MetricTile label="Missing data" value={formatNumber(state.kpis?.missing_data_percentage, "%")} accent="amber" />
-                  <MetricTile label="Best asset" value={state.kpis?.best_performing_asset?.asset ?? "n/a"} detail={state.kpis?.underperforming_asset ? `Needs attention: ${state.kpis.underperforming_asset.asset}` : undefined} accent="teal" />
-                </section>
+                <DomainMetrics kpis={state.kpis} />
 
                 <section className="content-grid">
+                  <DomainOperations state={state} />
                   <div className="panel wide">
                     <div className="panel-heading"><div><h3>Output Trend and Anomalies</h3><p>{state.kpis?.value_column ?? "Output"} over time</p></div><LineChartIcon size={20} /></div>
                     <div className="chart-frame"><ResponsiveContainer width="100%" height={280}>
