@@ -8,7 +8,6 @@ from app.api import router
 from app.config import get_settings
 from app.database.db import init_db
 
-
 settings = get_settings()
 
 

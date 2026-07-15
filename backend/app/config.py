@@ -3,7 +3,6 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_ROOT.parent if BACKEND_ROOT.name == "backend" else BACKEND_ROOT
 STORAGE_ROOT = PROJECT_ROOT / "storage"
@@ -19,8 +18,15 @@ class Settings(BaseSettings):
     dataset_dir: Path = STORAGE_ROOT / "datasets"
     report_dir: Path = PROJECT_ROOT / "reports"
     max_upload_size_mb: int = 50
-    openai_api_key: str | None = None
-    openai_model: str = "gpt-4o-mini"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.5-flash"
+    gemini_timeout_seconds: float = 30.0
+    auth_secret_key: str = "development-only-change-this-secret"
+    access_token_minutes: int = 480
+    allow_self_registration: bool = True
+    celery_broker_url: str = "memory://"
+    celery_result_backend: str = "cache+memory://"
+    celery_task_always_eager: bool = True
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -35,6 +41,10 @@ class Settings(BaseSettings):
     @property
     def max_upload_size_bytes(self) -> int:
         return max(self.max_upload_size_mb, 1) * 1024 * 1024
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() == "production"
 
 
 @lru_cache

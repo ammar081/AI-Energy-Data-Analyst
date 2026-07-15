@@ -1,0 +1,11 @@
+event_date,work_order_id,asset_id,maintenance_type,status,priority,repair_hours,maintenance_cost
+2026-05-01,WO-1001,INV-01,inspection,completed,low,1.5,65
+2026-05-03,WO-1002,INV-02,cooling_fan_repair,completed,high,5.0,480
+2026-05-06,WO-1003,INV-03,panel_cleaning,completed,medium,3.0,180
+2026-05-10,WO-1004,INV-02,thermal_inspection,open,high,2.0,90
+2026-05-12,WO-1005,INV-04,firmware_update,completed,low,1.0,35
+2026-05-15,WO-1006,INV-01,dc_connector_repair,in_progress,high,6.5,720
+2026-05-18,WO-1007,INV-03,inspection,completed,low,1.5,60
+2026-05-21,WO-1008,INV-04,cooling_fan_repair,pending,medium,4.0,410
+2026-05-24,WO-1009,INV-02,panel_cleaning,completed,medium,2.5,155
+2026-05-28,WO-1010,INV-01,thermal_inspection,scheduled,high,2.0,95

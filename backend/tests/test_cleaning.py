@@ -44,3 +44,19 @@ def test_clean_dataset_interpolates_within_each_asset() -> None:
         "ac_power",
     ].iloc[0]
     assert repaired == 20
+
+
+def test_clean_dataset_preserves_pre_cleaning_quality_evidence() -> None:
+    frame = pd.DataFrame(
+        {
+            "timestamp": ["2026-01-01", "2026-01-02", "2026-01-03"],
+            "inverter_id": ["A", "A", "A"],
+            "ac_power": [10, None, 30],
+        }
+    )
+
+    cleaned, report = clean_dataset(frame)
+
+    assert cleaned["ac_power"].isna().sum() == 0
+    assert report["original_missing_percentage"] == 11.11
+    assert report["data_quality_events"][0]["timestamp"].startswith("2026-01-02")

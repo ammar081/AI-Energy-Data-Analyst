@@ -46,3 +46,27 @@ def test_compute_kpis_uses_unique_timestamps_for_downtime() -> None:
     )
 
     assert result["downtime_hours"] == 1
+
+
+def test_compute_kpis_uses_status_and_original_missing_percentage() -> None:
+    frame = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-01-01", periods=3, freq="h"),
+            "energy": [10, 10, 10],
+            "status": ["online", "maintenance", "fault"],
+        }
+    )
+
+    result = compute_kpis(
+        frame,
+        {
+            "datetime_column": "timestamp",
+            "value_column": "energy",
+            "status_column": "status",
+            "original_missing_percentage": 4.25,
+        },
+    )
+
+    assert result["downtime_hours"] == 2
+    assert result["downtime_basis"] == "status:status"
+    assert result["missing_data_percentage"] == 4.25

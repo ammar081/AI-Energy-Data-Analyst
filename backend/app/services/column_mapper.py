@@ -2,7 +2,6 @@ from dataclasses import asdict, dataclass
 
 import pandas as pd
 
-
 DATE_HINTS = ("date", "time", "timestamp", "datetime", "period")
 VALUE_HINTS = (
     "ac_power",
@@ -14,9 +13,22 @@ VALUE_HINTS = (
     "daily_yield",
     "power",
     "yield",
+    "demand",
+    "load",
+    "consumption",
+    "usage",
 )
 ASSET_HINTS = ("asset", "inverter", "turbine", "source_key", "plant", "site", "meter", "device")
 WEATHER_HINTS = ("irradiation", "irradiance", "temperature", "wind", "humidity", "weather")
+GENERATION_HINTS = ("ac_power", "energy_generated", "generation", "production", "output", "daily_yield", "yield")
+DEMAND_HINTS = ("demand", "load", "consumption", "usage", "energy_consumed", "grid_import")
+EFFICIENCY_HINTS = ("efficiency", "performance_ratio", "conversion_rate")
+EXPECTED_HINTS = ("expected", "target", "budget", "planned", "forecast")
+WORK_ORDER_HINTS = ("work_order", "workorder", "ticket", "maintenance_id", "event_id")
+MAINTENANCE_TYPE_HINTS = ("maintenance_type", "event_type", "failure_type", "fault_type", "activity")
+DURATION_HINTS = ("duration", "repair_hours", "downtime_hours", "hours_down", "mttr")
+COST_HINTS = ("maintenance_cost", "repair_cost", "cost")
+PRIORITY_HINTS = ("priority", "severity", "criticality")
 
 
 @dataclass(frozen=True)
@@ -27,6 +39,15 @@ class ColumnMap:
     weather_columns: list[str]
     capacity_column: str | None
     status_column: str | None
+    dataset_type: str
+    demand_column: str | None
+    efficiency_column: str | None
+    expected_column: str | None
+    work_order_column: str | None
+    maintenance_type_column: str | None
+    duration_column: str | None
+    cost_column: str | None
+    priority_column: str | None
 
     def to_dict(self) -> dict[str, str | list[str] | None]:
         return asdict(self)
@@ -112,6 +133,63 @@ def infer_columns(frame: pd.DataFrame) -> ColumnMap:
     ]
     capacity_column = next((column for column in frame.columns if "capacity" in column), None)
     status_column = next((column for column in frame.columns if "status" in column or "state" in column), None)
+    demand_column = next(
+        (
+            column
+            for column in frame.columns
+            if any(hint in column for hint in DEMAND_HINTS) and pd.api.types.is_numeric_dtype(frame[column])
+        ),
+        None,
+    )
+    efficiency_column = next(
+        (
+            column
+            for column in frame.columns
+            if any(hint in column for hint in EFFICIENCY_HINTS) and pd.api.types.is_numeric_dtype(frame[column])
+        ),
+        None,
+    )
+    expected_column = next(
+        (
+            column
+            for column in frame.columns
+            if any(hint in column for hint in EXPECTED_HINTS) and pd.api.types.is_numeric_dtype(frame[column])
+        ),
+        None,
+    )
+    work_order_column = next((column for column in frame.columns if any(hint in column for hint in WORK_ORDER_HINTS)), None)
+    maintenance_type_column = next(
+        (column for column in frame.columns if any(hint in column for hint in MAINTENANCE_TYPE_HINTS)), None
+    )
+    duration_column = next(
+        (
+            column
+            for column in frame.columns
+            if any(hint in column for hint in DURATION_HINTS) and pd.api.types.is_numeric_dtype(frame[column])
+        ),
+        None,
+    )
+    cost_column = next(
+        (
+            column
+            for column in frame.columns
+            if any(hint in column for hint in COST_HINTS) and pd.api.types.is_numeric_dtype(frame[column])
+        ),
+        None,
+    )
+    priority_column = next((column for column in frame.columns if any(hint in column for hint in PRIORITY_HINTS)), None)
+    maintenance_signals = sum(
+        column is not None for column in (work_order_column, maintenance_type_column, duration_column, cost_column)
+    )
+    generation_signals = any(any(hint in column for hint in GENERATION_HINTS) for column in frame.columns)
+    if maintenance_signals >= 2 or (maintenance_signals and not generation_signals and demand_column is None):
+        dataset_type = "maintenance"
+    elif demand_column and not generation_signals:
+        dataset_type = "demand"
+    elif demand_column:
+        dataset_type = "generation_and_demand"
+    else:
+        dataset_type = "generation"
     return ColumnMap(
         datetime_column=infer_datetime_column(frame),
         value_column=infer_value_column(frame),
@@ -119,4 +197,13 @@ def infer_columns(frame: pd.DataFrame) -> ColumnMap:
         weather_columns=weather_columns,
         capacity_column=capacity_column,
         status_column=status_column,
+        dataset_type=dataset_type,
+        demand_column=demand_column,
+        efficiency_column=efficiency_column,
+        expected_column=expected_column,
+        work_order_column=work_order_column,
+        maintenance_type_column=maintenance_type_column,
+        duration_column=duration_column,
+        cost_column=cost_column,
+        priority_column=priority_column,
     )
