@@ -1,4 +1,4 @@
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
 export type Dataset = {
   id: string;
@@ -289,7 +289,9 @@ export const api = {
 };
 
 export function telemetryWebSocketUrl(datasetId: string) {
-  const url = new URL(API_BASE_URL);
+  const websocketBaseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_BASE_URL
+    ?? (API_BASE_URL.startsWith("http") ? API_BASE_URL : "http://localhost:8000/api");
+  const url = new URL(websocketBaseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const apiPath = url.pathname.replace(/\/$/, "");
   url.pathname = `${apiPath}/telemetry/${datasetId}/stream`;

@@ -1,230 +1,111 @@
 "use client";
 
-import {
-  AlertTriangle,
-  BarChart3,
-  Brain,
-  Columns3,
-  Database,
-  FileText,
-  Gauge,
-  LogOut,
-  LineChart as LineChartIcon,
-  Loader2,
-  Radio,
-  RefreshCcw,
-  Search,
-  Settings,
-  Trash2,
-  UploadCloud,
-  Zap
-} from "lucide-react";
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import {
-  Area,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis
-} from "recharts";
-import {
-  Anomaly,
-  api,
-  AskResponse,
-  ChartResponse,
-  CleaningReport,
-  Dataset,
-  ForecastResponse,
-  KPIResponse,
-  SummaryResponse,
-  DemandAnalysis,
-  getAccessToken,
-  MaintenanceAnalysis,
-  openHtmlDocument,
-  setAccessToken,
-  User
-} from "@/lib/api";
+import { Database, Gauge, Loader2, Trash2, UploadCloud } from "lucide-react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminView } from "@/components/AdminView";
+import { AppShell, WorkspaceView } from "@/components/AppShell";
 import { AuthScreen } from "@/components/AuthScreen";
 import { ComparisonView } from "@/components/ComparisonView";
+import { DashboardData, DomainDashboard } from "@/components/DomainDashboard";
+import { DashboardSkeleton, EmptyState, ErrorState, FleetSkeleton, ToastMessage, ToastRegion } from "@/components/FeedbackStates";
+import { FleetOverview } from "@/components/FleetOverview";
 import { LiveTelemetryView } from "@/components/LiveTelemetryView";
 import { ReportsView } from "@/components/ReportsView";
+import { ResponsiveColumn, ResponsiveTable } from "@/components/ResponsiveTable";
+import {
+  api,
+  AskResponse,
+  CleaningReport,
+  Dataset,
+  getAccessToken,
+  openHtmlDocument,
+  setAccessToken,
+  SummaryResponse,
+  User
+} from "@/lib/api";
+import {
+  DashboardPeriod,
+  defaultPeriod,
+  loadPreferences,
+  readWorkspaceLocation,
+  resolveTheme,
+  savePreferences,
+  UserPreferences,
+  workspaceUrl
+} from "@/lib/ui";
 
-type LoadState = {
-  summary: SummaryResponse | null;
-  kpis: KPIResponse | null;
-  charts: ChartResponse | null;
-  anomalies: Anomaly[];
-  forecast: ForecastResponse | null;
-  demand: DemandAnalysis | null;
-  maintenance: MaintenanceAnalysis | null;
+const emptyData: DashboardData = {
+  summary: null,
+  kpis: null,
+  charts: null,
+  anomalies: [],
+  forecast: null,
+  demand: null,
+  maintenance: null
 };
 
-const emptyState: LoadState = { summary: null, kpis: null, charts: null, anomalies: [], forecast: null, demand: null, maintenance: null };
-
-type View = "overview" | "quality" | "compare" | "reports" | "live" | "admin";
-
 function formatNumber(value: number | null | undefined, suffix = "") {
-  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+  if (value === null || value === undefined || Number.isNaN(value)) return "Not available";
   return `${new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(value)}${suffix}`;
 }
 
-function formatDate(value: string | null) {
-  if (!value) return "n/a";
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
-
 function formatCell(value: unknown) {
-  if (value === null || value === undefined || value === "") return "n/a";
+  if (value === null || value === undefined || value === "") return "Not available";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
-function MetricTile({ label, value, accent = "green", detail }: { label: string; value: string; accent?: "green" | "amber" | "red" | "teal"; detail?: string }) {
-  return (
-    <div className={`metric-tile ${accent}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {detail ? <small>{detail}</small> : null}
-    </div>
-  );
+function QualityMetric({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "info" | "warning" | "critical" }) {
+  return <div className={`domain-metric ${tone}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function DataQualityView({ summary }: { summary: SummaryResponse }) {
   const report = summary.cleaning_report as CleaningReport;
   const originalMissing = report.original_missing_values ?? {};
   const visibleColumns = summary.columns.slice(0, 16);
+  const mappings = Object.entries(report.columns_used_for_analysis ?? {});
+  const inspectionRows = visibleColumns.map((column) => ({ column, type: summary.dtypes[column], original: originalMissing[column] ?? 0, cleaned: summary.missing_values[column] ?? 0 }));
+  const inspectionColumns: ResponsiveColumn<(typeof inspectionRows)[number]>[] = [
+    { key: "column", label: "Column", hideFromDetails: true, render: (row) => <strong>{row.column}</strong> },
+    { key: "type", label: "Inferred type", render: (row) => row.type },
+    { key: "original", label: "Original missing", render: (row) => row.original },
+    { key: "cleaned", label: "After cleaning", render: (row) => row.cleaned }
+  ];
+  const sampleRows = summary.sample_rows.map((row, index) => ({ ...row, __rowIndex: index + 1 }));
+  const sampleColumns: ResponsiveColumn<Record<string, unknown>>[] = visibleColumns.map((column) => ({ key: column, label: column, render: (row) => formatCell(row[column]) }));
 
   return (
     <section className="quality-view">
-      <div className="quality-summary">
-        <MetricTile label="Original rows" value={formatNumber(report.original_rows)} />
-        <MetricTile label="Cleaned rows" value={formatNumber(report.cleaned_rows)} accent="teal" />
-        <MetricTile label="Missing fixed" value={formatNumber(report.missing_values_fixed)} accent="amber" />
-        <MetricTile label="Duplicates removed" value={formatNumber(report.duplicate_rows_removed)} accent="red" />
-        <MetricTile label="Invalid timestamps" value={formatNumber(report.invalid_timestamps_removed)} />
-        <MetricTile label="Negative values repaired" value={formatNumber(report.negative_values_replaced)} accent="teal" />
-        <MetricTile label="Outlier cells" value={formatNumber(report.outlier_cells_detected)} accent="amber" />
-        <MetricTile label="Original missing" value={formatNumber(report.original_missing_percentage, "%")} accent="red" />
+      <div className="domain-context">
+        <div className="domain-context-icon quality"><Database size={20} /></div>
+        <div><strong>Data validation</strong><span>Cleaning and schema inspection</span></div>
+        <small>{summary.dataset.row_count.toLocaleString()} cleaned records</small>
       </div>
+      <section className="domain-metrics quality-metrics">
+        <QualityMetric label="Original rows" value={formatNumber(report.original_rows)} />
+        <QualityMetric label="Cleaned rows" value={formatNumber(report.cleaned_rows)} tone="info" />
+        <QualityMetric label="Missing values fixed" value={formatNumber(report.missing_values_fixed)} tone="warning" />
+        <QualityMetric label="Duplicates removed" value={formatNumber(report.duplicate_rows_removed)} />
+        <QualityMetric label="Invalid timestamps" value={formatNumber(report.invalid_timestamps_removed)} tone="critical" />
+        <QualityMetric label="Original missing" value={formatNumber(report.original_missing_percentage, "%")} tone="warning" />
+      </section>
 
-      <div className="panel wide">
-        <div className="panel-heading">
-          <div><h3>Column Inspection</h3><p>Inferred types and quality counts</p></div>
-          <Database size={20} />
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Column</th><th>Inferred type</th><th>Original missing</th><th>After cleaning</th></tr></thead>
-            <tbody>
-              {visibleColumns.map((column) => (
-                <tr key={column}>
-                  <td><strong>{column}</strong></td>
-                  <td>{summary.dtypes[column]}</td>
-                  <td>{originalMissing[column] ?? 0}</td>
-                  <td>{summary.missing_values[column] ?? 0}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <section className="panel">
+        <div className="panel-heading"><div><h3>Column Inspection</h3><p>Inferred types and missing-value counts</p></div><Database size={20} /></div>
+        <ResponsiveTable caption="Column data quality inspection" columns={inspectionColumns} mobileSummary={(row) => `${row.type} | ${row.cleaned} missing after cleaning`} mobileTitle={(row) => row.column} rowKey={(row) => row.column} rows={inspectionRows} />
+      </section>
 
-      <div className="panel wide">
-        <div className="panel-heading">
-          <div><h3>Sample Rows</h3><p>First {summary.sample_rows.length} cleaned records</p></div>
-          <Database size={20} />
-        </div>
-        <div className="table-wrap sample-grid">
-          <table>
-            <thead><tr>{visibleColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
-            <tbody>
-              {summary.sample_rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>{visibleColumns.map((column) => <td key={column}>{formatCell(row[column])}</td>)}</tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <section className="panel">
+        <div className="panel-heading"><div><h3>Sample Records</h3><p>First {summary.sample_rows.length} cleaned rows</p></div><Database size={20} /></div>
+        <div className="sample-grid"><ResponsiveTable caption="Cleaned sample records" columns={sampleColumns} mobileSummary={() => `${visibleColumns.length} columns`} mobileTitle={(row) => `Record ${row.__rowIndex}`} rowKey={(row) => String(row.__rowIndex)} rows={sampleRows} /></div>
+      </section>
 
-      <div className="panel wide">
-        <div className="panel-heading">
-          <div><h3>Analysis Mapping</h3><p>Columns selected by the backend</p></div>
-          <Gauge size={20} />
-        </div>
-        <div className="mapping-grid">
-          {Object.entries(report.columns_used_for_analysis ?? {}).map(([key, value]) => (
-            <div key={key}><span>{key.replaceAll("_", " ")}</span><strong>{Array.isArray(value) ? value.join(", ") || "Not detected" : value ?? "Not detected"}</strong></div>
-          ))}
-        </div>
-      </div>
+      <section className="panel">
+        <div className="panel-heading"><div><h3>Analysis Mapping</h3><p>Columns selected for operational analytics</p></div><Gauge size={20} /></div>
+        {mappings.length ? <div className="mapping-grid">{mappings.map(([key, value]) => <div key={key}><span>{key.replaceAll("_", " ")}</span><strong>{Array.isArray(value) ? value.join(", ") || "Not detected" : value ?? "Not detected"}</strong></div>)}</div> : <EmptyState title="No analysis mapping" detail="The uploaded columns could not be mapped to known energy fields." />}
+      </section>
     </section>
   );
-}
-
-function DomainMetrics({ kpis }: { kpis: KPIResponse | null }) {
-  if (kpis?.metric_type === "maintenance") {
-    return <section className="metrics-grid">
-      <MetricTile label="Maintenance events" value={formatNumber(kpis.maintenance_events)} />
-      <MetricTile label="Open work orders" value={formatNumber(kpis.open_work_orders)} accent="amber" />
-      <MetricTile label="Average repair time" value={formatNumber(kpis.average_repair_hours, " h")} accent="teal" />
-      <MetricTile label="Maintenance cost" value={formatNumber(kpis.maintenance_cost)} accent="red" />
-      <MetricTile label="Availability" value={formatNumber(kpis.availability_percentage, "%")} />
-      <MetricTile label="Downtime" value={formatNumber(kpis.downtime_hours, " h")} accent="red" />
-      <MetricTile label="Missing data" value={formatNumber(kpis.missing_data_percentage, "%")} accent="amber" />
-      <MetricTile label="Average efficiency" value={formatNumber(kpis.average_efficiency, "%")} accent="teal" />
-    </section>;
-  }
-  if (kpis?.metric_type === "demand" || kpis?.metric_type === "generation_and_demand") {
-    return <section className="metrics-grid">
-      <MetricTile label="Total consumption" value={formatNumber(kpis.total_output)} />
-      <MetricTile label="Peak demand" value={formatNumber(kpis.peak_demand)} accent="red" />
-      <MetricTile label="Average demand" value={formatNumber(kpis.average_demand)} accent="teal" />
-      <MetricTile label="Load factor" value={formatNumber(kpis.load_factor, "%")} accent="amber" />
-      <MetricTile label="Demand variability" value={formatNumber(kpis.demand_variability, "%")} />
-      <MetricTile label="Average efficiency" value={formatNumber(kpis.average_efficiency, "%")} accent="teal" />
-      <MetricTile label="Missing data" value={formatNumber(kpis.missing_data_percentage, "%")} accent="amber" />
-      <MetricTile label="Lowest demand" value={formatNumber(kpis.lowest_output)} accent="green" />
-    </section>;
-  }
-  return <section className="metrics-grid">
-    <MetricTile label="Total output" value={formatNumber(kpis?.total_output)} />
-    <MetricTile label="Average daily" value={formatNumber(kpis?.average_daily_output)} accent="teal" />
-    <MetricTile label="Peak output" value={formatNumber(kpis?.peak_output)} accent="amber" />
-    <MetricTile label="Average efficiency" value={formatNumber(kpis?.average_efficiency, "%")} accent="teal" />
-    <MetricTile label="Capacity factor" value={formatNumber(kpis?.capacity_factor, "%")} />
-    <MetricTile label="Downtime hours" value={formatNumber(kpis?.downtime_hours)} detail={kpis?.downtime_basis?.replaceAll("_", " ")} accent="red" />
-    <MetricTile label="Missing data" value={formatNumber(kpis?.missing_data_percentage, "%")} accent="amber" />
-    <MetricTile label="Best asset" value={kpis?.best_performing_asset?.asset ?? "n/a"} detail={kpis?.underperforming_asset ? `Needs attention: ${kpis.underperforming_asset.asset}` : undefined} accent="green" />
-  </section>;
-}
-
-function DomainOperations({ state }: { state: LoadState }) {
-  if (state.kpis?.metric_type === "maintenance" && state.maintenance) {
-    return <div className="panel wide">
-      <div className="panel-heading"><div><h3>Maintenance Operations</h3><p>Work orders by asset and event type</p></div><Settings size={20} /></div>
-      <div className="operations-split">
-        <div className="chart-frame"><ResponsiveContainer height={280} width="100%"><BarChart data={state.maintenance.events_by_type}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="type" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="events" fill="#f08c00" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div>
-        <div className="table-wrap"><table><thead><tr><th>Asset</th><th>Events</th><th>Downtime</th><th>Cost</th></tr></thead><tbody>{state.maintenance.asset_reliability.slice(0, 8).map((asset) => <tr key={asset.asset}><td><strong>{asset.asset}</strong></td><td>{asset.events}</td><td>{formatNumber(asset.downtime_hours)}</td><td>{formatNumber(asset.cost)}</td></tr>)}</tbody></table></div>
-      </div>
-    </div>;
-  }
-  if ((state.kpis?.metric_type === "demand" || state.kpis?.metric_type === "generation_and_demand") && state.demand?.demand_column) {
-    return <div className="panel wide">
-      <div className="panel-heading"><div><h3>Demand Profile</h3><p>{state.demand.demand_column.replaceAll("_", " ")}</p></div><Gauge size={20} /></div>
-      <div className="chart-frame"><ResponsiveContainer height={280} width="100%"><LineChart data={state.demand.daily_demand}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" minTickGap={28} /><YAxis /><Tooltip /><Line dataKey="value" dot={false} stroke="#1098ad" strokeWidth={2} /></LineChart></ResponsiveContainer></div>
-    </div>;
-  }
-  return null;
 }
 
 export function EnergyDashboard() {
@@ -232,63 +113,149 @@ export function EnergyDashboard() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [state, setState] = useState<LoadState>(emptyState);
+  const [data, setData] = useState<DashboardData>(emptyData);
   const [forecastDays, setForecastDays] = useState(7);
-  const [activeView, setActiveView] = useState<View>("overview");
+  const [view, setView] = useState<WorkspaceView>("fleet");
+  const [period, setPeriod] = useState<DashboardPeriod>(defaultPeriod);
+  const [preferences, setPreferences] = useState<UserPreferences>(loadPreferences);
   const [question, setQuestion] = useState("Which asset is underperforming?");
   const [answer, setAnswer] = useState<AskResponse | null>(null);
+  const [isDatasetsLoading, setIsDatasetsLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isAsking, setIsAsking] = useState(false);
   const [deletingId, setDeletingId] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Dataset | null>(null);
-  const [error, setError] = useState("");
+  const [fleetError, setFleetError] = useState("");
+  const [dataError, setDataError] = useState("");
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const deleteDialog = useRef<HTMLDivElement>(null);
+  const deleteCancelButton = useRef<HTMLButtonElement>(null);
 
   const selectedDataset = useMemo(() => datasets.find((dataset) => dataset.id === selectedId) ?? null, [datasets, selectedId]);
+  const notify = useCallback((message: string, type: ToastMessage["type"] = "info") => setToast({ id: Date.now(), message, type }), []);
+  const dismissToast = useCallback(() => setToast(null), []);
 
-  async function loadDatasets(preferredId?: string) {
-    const records = await api.listDatasets();
-    setDatasets(records);
-    if (preferredId) setSelectedId(preferredId);
-    else if (!selectedId && records.length > 0) setSelectedId(records[0].id);
-  }
+  const loadDatasets = useCallback(async (preferredId?: string) => {
+    setIsDatasetsLoading(true);
+    setFleetError("");
+    try {
+      const records = await api.listDatasets();
+      setDatasets(records);
+      setSelectedId((current) => {
+        if (preferredId && records.some((dataset) => dataset.id === preferredId)) return preferredId;
+        if (records.some((dataset) => dataset.id === current)) return current;
+        return records[0]?.id ?? "";
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not load datasets.";
+      setFleetError(message);
+      notify(message, "error");
+    } finally {
+      setIsDatasetsLoading(false);
+    }
+  }, [notify]);
 
-  async function loadDatasetDetails(datasetId: string, days = forecastDays) {
+  const loadDatasetDetails = useCallback(async (datasetId: string, days: number) => {
     setIsLoading(true);
-    setError("");
+    setDataError("");
     try {
       const [summary, kpis, charts, anomalies, forecast, demand, maintenance] = await Promise.all([
-        api.summary(datasetId), api.kpis(datasetId), api.charts(datasetId), api.anomalies(datasetId), api.forecast(datasetId, days),
-        api.demand(datasetId, days), api.maintenance(datasetId)
+        api.summary(datasetId),
+        api.kpis(datasetId),
+        api.charts(datasetId),
+        api.anomalies(datasetId),
+        api.forecast(datasetId, days),
+        api.demand(datasetId, days),
+        api.maintenance(datasetId)
       ]);
-      setState({ summary, kpis, charts, anomalies, forecast, demand, maintenance });
+      setData({ summary, kpis, charts, anomalies, forecast, demand, maintenance });
       setAnswer(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load dataset.");
-      setState(emptyState);
+    } catch (error) {
+      setData(emptyData);
+      setDataError(error instanceof Error ? error.message : "Could not load dataset analysis.");
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    if (!getAccessToken()) { setIsCheckingAuth(false); return; }
+    const route = readWorkspaceLocation(window.location.search);
+    const storedPreferences = loadPreferences();
+    setPreferences(storedPreferences);
+    setView(route.view);
+    setSelectedId(route.datasetId);
+    setPeriod(route.period.preset === "all" && !new URLSearchParams(window.location.search).has("range")
+      ? { preset: storedPreferences.defaultPeriod, from: "", to: "" }
+      : route.period);
+    function onPopState() {
+      const next = readWorkspaceLocation(window.location.search);
+      setView(next.view);
+      setSelectedId(next.datasetId);
+      setPeriod(next.period);
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    savePreferences(preferences);
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    function applyTheme() {
+      document.documentElement.dataset.theme = resolveTheme(preferences.theme, media.matches);
+      document.documentElement.dataset.density = preferences.density;
+    }
+    applyTheme();
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [preferences]);
+
+  useEffect(() => {
+    if (!pendingDelete) return;
+    deleteCancelButton.current?.focus();
+    function handleDialogKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && !deletingId) setPendingDelete(null);
+      if (event.key !== "Tab") return;
+      const controls = deleteDialog.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+      if (!controls?.length) return;
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+    window.addEventListener("keydown", handleDialogKey);
+    return () => window.removeEventListener("keydown", handleDialogKey);
+  }, [deletingId, pendingDelete]);
+
+  useEffect(() => {
+    if (!getAccessToken()) {
+      setIsCheckingAuth(false);
+      return;
+    }
     api.me().then(setUser).catch(() => setAccessToken(null)).finally(() => setIsCheckingAuth(false));
   }, []);
-  useEffect(() => { if (user) loadDatasets().catch((err) => setError(err instanceof Error ? err.message : "Could not load datasets.")); }, [user]);
-  useEffect(() => { if (user && selectedId) loadDatasetDetails(selectedId).catch((err) => setError(err instanceof Error ? err.message : "Could not load dataset.")); }, [selectedId, user]);
+
+  useEffect(() => {
+    if (user) void loadDatasets();
+  }, [loadDatasets, user]);
+
+  useEffect(() => {
+    if (user && selectedId) void loadDatasetDetails(selectedId, 7);
+  }, [loadDatasetDetails, selectedId, user]);
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
     setIsUploading(true);
-    setError("");
     try {
       const result = await api.uploadDataset(file);
       await loadDatasets(result.dataset.id);
-      setActiveView("overview");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed.");
+      setView("analysis");
+      window.history.pushState(null, "", workspaceUrl("analysis", result.dataset.id, period));
+      notify(`${result.dataset.original_filename} uploaded successfully.`, "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Upload failed.", "error");
     } finally {
       setIsUploading(false);
       event.target.value = "";
@@ -297,19 +264,19 @@ export function EnergyDashboard() {
 
   async function handleDeleteDataset(dataset: Dataset) {
     setDeletingId(dataset.id);
-    setError("");
     try {
       await api.deleteDataset(dataset.id);
       const remaining = datasets.filter((item) => item.id !== dataset.id);
       setDatasets(remaining);
       if (selectedId === dataset.id) {
-        setState(emptyState);
+        setData(emptyData);
         setAnswer(null);
         setSelectedId(remaining[0]?.id ?? "");
       }
       setPendingDelete(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not delete dataset.");
+      notify(`${dataset.original_filename} was deleted.`, "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not delete dataset.", "error");
     } finally {
       setDeletingId("");
     }
@@ -319,9 +286,11 @@ export function EnergyDashboard() {
     setForecastDays(days);
     if (!selectedId) return;
     try {
-      const forecast = await api.forecast(selectedId, days);
-      setState((current) => ({ ...current, forecast }));
-    } catch (err) { setError(err instanceof Error ? err.message : "Forecast failed."); }
+      const [forecast, demand] = await Promise.all([api.forecast(selectedId, days), api.demand(selectedId, days)]);
+      setData((current) => ({ ...current, forecast, demand }));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Forecast could not be updated.", "error");
+    }
   }
 
   async function handleQuestion(event: FormEvent<HTMLFormElement>) {
@@ -329,154 +298,96 @@ export function EnergyDashboard() {
     if (!selectedId || !question.trim()) return;
     setIsAsking(true);
     setAnswer(null);
-    setError("");
-    try { setAnswer(await api.ask(selectedId, question.trim())); }
-    catch (err) { setError(err instanceof Error ? err.message : "Question failed."); }
-    finally { setIsAsking(false); }
+    try {
+      setAnswer(await api.ask(selectedId, question.trim()));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "The question could not be answered.", "error");
+    } finally {
+      setIsAsking(false);
+    }
   }
-
-  const forecastChartData = useMemo(() => {
-    const history = state.forecast?.history.map((point) => ({ date: point.date, actual: point.value, forecast: null, lower: null, upper: null })) ?? [];
-    const forecast = state.forecast?.forecast.map((point) => ({ date: point.date, actual: null, forecast: point.predicted_value, lower: point.lower_bound, upper: point.upper_bound })) ?? [];
-    return [...history, ...forecast];
-  }, [state.forecast]);
-
-  const anomalyPoints = useMemo(() => state.anomalies.filter((item) => item.timestamp).map((item) => ({
-    date: item.timestamp!.slice(0, 10), anomaly: item.actual_value, severity: item.severity, method: item.method
-  })), [state.anomalies]);
 
   function logout() {
     setAccessToken(null);
     setUser(null);
     setDatasets([]);
     setSelectedId("");
-    setState(emptyState);
+    setData(emptyData);
+    setView("fleet");
+    window.history.replaceState(null, "", "/");
   }
 
-  if (isCheckingAuth) return <main className="auth-shell"><Loader2 className="spin" size={28} /></main>;
+  function openDataset(datasetId: string) {
+    setSelectedId(datasetId);
+    setView("analysis");
+    window.history.pushState(null, "", workspaceUrl("analysis", datasetId, period));
+  }
+
+  function changeView(nextView: WorkspaceView) {
+    setView(nextView);
+    window.history.pushState(null, "", workspaceUrl(nextView, selectedId, period));
+  }
+
+  function changeDataset(datasetId: string) {
+    setSelectedId(datasetId);
+    window.history.pushState(null, "", workspaceUrl(view, datasetId, period));
+  }
+
+  function changePeriod(nextPeriod: DashboardPeriod) {
+    setPeriod(nextPeriod);
+    window.history.pushState(null, "", workspaceUrl("analysis", selectedId, nextPeriod));
+  }
+
+  function renderDatasetState(content: React.ReactNode) {
+    if (!selectedDataset) return <EmptyState icon={<Database size={25} />} title="Select a dataset" detail="Choose a dataset from the toolbar or return to the fleet overview." action={<button className="secondary-command" onClick={() => changeView("fleet")} type="button">Open fleet overview</button>} />;
+    if (isLoading) return <DashboardSkeleton />;
+    if (dataError) return <ErrorState message={dataError} onRetry={() => void loadDatasetDetails(selectedDataset.id, forecastDays)} />;
+    return content;
+  }
+
+  if (isCheckingAuth) return <main className="auth-shell"><Loader2 className="spin" size={28} /><span className="sr-only">Checking session</span></main>;
   if (!user) return <AuthScreen onAuthenticated={setUser} />;
 
+  let content: React.ReactNode;
+  if (view === "fleet") {
+    content = isDatasetsLoading ? <FleetSkeleton /> : fleetError ? <ErrorState message={fleetError} onRetry={() => void loadDatasets()} /> : <FleetOverview currency={preferences.currency} datasets={datasets} isUploading={isUploading} onDeleteDataset={setPendingDelete} onOpenDataset={openDataset} onUpload={() => fileInput.current?.click()} pageSize={preferences.fleetPageSize} user={user} />;
+  } else if (view === "analysis") {
+    content = renderDatasetState(selectedDataset ? <DomainDashboard answer={answer} currency={preferences.currency} data={data} dataset={selectedDataset} forecastDays={forecastDays} isAsking={isAsking} onAsk={handleQuestion} onForecastDays={handleForecastDays} onPeriodChange={changePeriod} period={period} question={question} setQuestion={setQuestion} /> : null);
+  } else if (view === "quality") {
+    content = renderDatasetState(data.summary ? <DataQualityView summary={data.summary} /> : <EmptyState title="Quality details unavailable" detail="The dataset summary did not include a cleaning report." />);
+  } else if (view === "compare") {
+    content = datasets.length >= 2 ? <ComparisonView currency={preferences.currency} datasets={datasets} /> : <EmptyState title="Nothing to compare" detail="Upload at least two datasets to create a fleet comparison." />;
+  } else if (view === "reports") {
+    content = renderDatasetState(<ReportsView dataset={selectedDataset} onNotify={notify} user={user} />);
+  } else if (view === "live") {
+    content = renderDatasetState(<LiveTelemetryView currency={preferences.currency} dataset={selectedDataset} onNotify={notify} />);
+  } else {
+    content = user.role === "admin" ? <AdminView currentUser={user} onNotify={notify} /> : <ErrorState message="Administrator access is required for this view." />;
+  }
+
   return (
-    <main className="dashboard-shell">
-      <aside className="dataset-panel">
-        <div className="brand-block"><div className="brand-mark"><Zap size={22} /></div><div><h1>AI Energy Data Analyst</h1><p>Renewable operations analytics</p></div></div>
-        {user.role !== "viewer" ? <label className="upload-control"><UploadCloud size={20} /><span>{isUploading ? "Uploading..." : "Upload CSV or Excel"}</span><input type="file" accept=".csv,.xlsx,.xls" onChange={handleUpload} disabled={isUploading} /></label> : null}
-        <div className="dataset-list">
-          <div className="section-label">Datasets</div>
-          {datasets.length === 0 ? <div className="empty-copy">No datasets yet.</div> : datasets.map((dataset) => (
-            <div className="dataset-row" key={dataset.id}>
-              <button className={`dataset-item ${dataset.id === selectedId ? "active" : ""}`} onClick={() => setSelectedId(dataset.id)} type="button">
-                <span>{dataset.original_filename}</span><small>{dataset.row_count} rows | {dataset.column_count} columns</small>
-              </button>
-              {user.role === "admin" ? <button
-                aria-label={`Delete ${dataset.original_filename}`}
-                className="dataset-delete"
-                disabled={deletingId === dataset.id}
-                onClick={() => setPendingDelete(dataset)}
-                title="Delete dataset"
-                type="button"
-              >
-                {deletingId === dataset.id ? <Loader2 className="spin" size={17} /> : <Trash2 size={17} />}
-              </button> : null}
-            </div>
-          ))}
-        </div>
-        <div className="sidebar-user"><span>{user.full_name.slice(0, 1).toUpperCase()}</span><div><strong>{user.full_name}</strong><small>{user.role}</small></div><button aria-label="Sign out" onClick={logout} title="Sign out" type="button"><LogOut size={17} /></button></div>
-      </aside>
-
-      <section className="workspace">
-        <header className="workspace-header">
-          <div><p className="eyebrow">{selectedDataset ? formatDate(selectedDataset.created_at) : "Ready"}</p><h2>{selectedDataset?.original_filename ?? "Upload an energy dataset"}</h2></div>
-          <div className="header-actions">
-            <button aria-label="Refresh analysis" title="Refresh analysis" className="icon-button" onClick={() => selectedId && loadDatasetDetails(selectedId)} disabled={!selectedId || isLoading} type="button">{isLoading ? <Loader2 className="spin" size={18} /> : <RefreshCcw size={18} />}</button>
-            <button className="report-button" onClick={() => selectedId && openHtmlDocument(() => api.reportHtml(selectedId)).catch((err) => setError(err instanceof Error ? err.message : "Could not open report."))} disabled={!selectedId} type="button"><FileText size={18} />Report</button>
-          </div>
-        </header>
-
-        {error ? <div className="error-banner">{error}</div> : null}
-        {!selectedId ? <div className="start-panel"><UploadCloud size={32} /><strong>Start with a solar or wind operations file.</strong></div> : (
-          <>
-            <nav className="view-tabs" aria-label="Dataset views">
-              <button className={activeView === "overview" ? "active" : ""} onClick={() => setActiveView("overview")} type="button"><Gauge size={17} />Overview</button>
-              <button className={activeView === "quality" ? "active" : ""} onClick={() => setActiveView("quality")} type="button"><Database size={17} />Data Quality</button>
-              <button className={activeView === "compare" ? "active" : ""} onClick={() => setActiveView("compare")} type="button"><Columns3 size={17} />Compare</button>
-              <button className={activeView === "reports" ? "active" : ""} onClick={() => setActiveView("reports")} type="button"><FileText size={17} />Reports</button>
-              <button className={activeView === "live" ? "active" : ""} onClick={() => setActiveView("live")} type="button"><Radio size={17} />Live</button>
-              {user.role === "admin" ? <button className={activeView === "admin" ? "active" : ""} onClick={() => setActiveView("admin")} type="button"><Settings size={17} />Admin</button> : null}
-            </nav>
-
-            {activeView === "quality" && state.summary ? <DataQualityView summary={state.summary} /> : activeView === "compare" ? <ComparisonView datasets={datasets} /> : activeView === "reports" ? <ReportsView dataset={selectedDataset} user={user} /> : activeView === "live" ? <LiveTelemetryView dataset={selectedDataset} /> : activeView === "admin" && user.role === "admin" ? <AdminView currentUser={user} /> : (
-              <>
-                <DomainMetrics kpis={state.kpis} />
-
-                <section className="content-grid">
-                  <DomainOperations state={state} />
-                  <div className="panel wide">
-                    <div className="panel-heading"><div><h3>Output Trend and Anomalies</h3><p>{state.kpis?.value_column ?? "Output"} over time</p></div><LineChartIcon size={20} /></div>
-                    <div className="chart-frame"><ResponsiveContainer width="100%" height={280}>
-                      <ComposedChart data={state.charts?.time_series ?? []}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" minTickGap={28} /><YAxis /><Tooltip /><Legend />
-                        <Area type="monotone" name="Output" dataKey="value" stroke="#087f5b" fill="#d3f9d8" strokeWidth={2} />
-                        <Scatter name="Anomaly" data={anomalyPoints} dataKey="anomaly" fill="#c92a2a" />
-                      </ComposedChart>
-                    </ResponsiveContainer></div>
-                  </div>
-
-                  <div className="panel">
-                    <div className="panel-heading"><div><h3>Asset Ranking</h3><p>{selectedDataset?.asset_column ?? "Detected assets"}</p></div><BarChart3 size={20} /></div>
-                    <div className="chart-frame"><ResponsiveContainer width="100%" height={280}><BarChart data={state.charts?.asset_comparison ?? []} layout="vertical" margin={{ left: 24 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} /><XAxis type="number" /><YAxis dataKey="asset" type="category" width={90} /><Tooltip /><Bar dataKey="value" fill="#0ca678" radius={[0, 4, 4, 0]} /></BarChart></ResponsiveContainer></div>
-                  </div>
-
-                  <div className="panel">
-                    <div className="panel-heading"><div><h3>Forecast</h3><p>{state.forecast?.summary ?? "Output outlook"}</p></div><div className="segmented">{[7, 14, 30].map((days) => <button className={forecastDays === days ? "active" : ""} key={days} onClick={() => handleForecastDays(days)} type="button">{days}d</button>)}</div></div>
-                    <div className="forecast-meta"><span>Model: {state.forecast?.method.replaceAll("_", " ") ?? "n/a"}</span><span>MAE {formatNumber(state.forecast?.metrics.mae)} | RMSE {formatNumber(state.forecast?.metrics.rmse)}</span></div>
-                    <div className="chart-frame"><ResponsiveContainer width="100%" height={280}><LineChart data={forecastChartData}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" minTickGap={28} /><YAxis /><Tooltip /><Legend /><Line type="monotone" dataKey="actual" stroke="#087f5b" dot={false} strokeWidth={2} /><Line type="monotone" dataKey="forecast" stroke="#f08c00" strokeWidth={2} /><Line type="monotone" dataKey="upper" stroke="#868e96" dot={false} strokeDasharray="4 4" /><Line type="monotone" dataKey="lower" stroke="#868e96" dot={false} strokeDasharray="4 4" /></LineChart></ResponsiveContainer></div>
-                  </div>
-
-                  <div className="panel">
-                    <div className="panel-heading"><div><h3>Weather Relationship</h3><p>Weather signal vs output</p></div><BarChart3 size={20} /></div>
-                    <div className="chart-frame"><ResponsiveContainer width="100%" height={280}><ScatterChart><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="weather_value" name="weather" /><YAxis dataKey="output" name="output" /><Tooltip cursor={{ strokeDasharray: "3 3" }} /><Scatter data={state.charts?.weather_relationship ?? []} fill="#1098ad" /></ScatterChart></ResponsiveContainer></div>
-                  </div>
-                </section>
-
-                <section className="lower-grid">
-                  <div className="panel">
-                    <div className="panel-heading"><div><h3>Anomalies</h3><p>{state.anomalies.length} events detected</p></div><AlertTriangle size={20} /></div>
-                    <div className="table-wrap"><table><thead><tr><th>Time</th><th>Asset</th><th>Signal</th><th>Severity</th><th>Explanation</th></tr></thead><tbody>
-                      {state.anomalies.slice(0, 8).map((item, index) => <tr key={`${item.timestamp}-${item.method}-${index}`}><td>{item.timestamp ? new Date(item.timestamp).toLocaleDateString() : "n/a"}</td><td>{item.asset ?? "All"}</td><td>{item.method.replaceAll("_", " ")}<small className="table-value">Actual: {formatNumber(item.actual_value)}</small></td><td><span className={`severity ${item.severity}`}>{item.severity}</span></td><td className="explanation-cell">{item.possible_explanation}</td></tr>)}
-                    </tbody></table></div>
-                  </div>
-
-                  <div className="panel">
-                    <div className="panel-heading"><div><h3>Ask Data</h3><p>Validated intent analysis</p></div><Brain size={20} /></div>
-                    <form className="ask-form" onSubmit={handleQuestion}><div className="question-row"><Search size={18} /><input aria-label="Ask a question about this dataset" value={question} onChange={(event) => setQuestion(event.target.value)} /><button disabled={isAsking} type="submit">{isAsking ? <Loader2 className="spin" size={18} /> : "Ask"}</button></div></form>
-                    {answer ? <div className="answer-box"><div className="answer-meta"><span>{answer.source === "gemini" ? "Gemini assisted" : "Rules analysis"}</span><span>{answer.analysis_period}</span></div><strong>{answer.explanation.what_happened}</strong><dl><dt>Why it matters</dt><dd>{answer.explanation.why_it_matters}</dd><dt>Possible reason</dt><dd>{answer.explanation.possible_reason}</dd><dt>Next step</dt><dd>{answer.explanation.suggested_next_step}</dd></dl></div> : null}
-                    <div className="sample-table"><div className="section-label">Try asking</div><div className="question-suggestions">{["Which plant produced the most energy this month?", "Which day had the biggest production drop?", "What factors seem related to low production?"].map((item) => <button key={item} onClick={() => setQuestion(item)} type="button">{item}</button>)}</div></div>
-                  </div>
-                </section>
-              </>
-            )}
-          </>
-        )}
-      </section>
-      {pendingDelete ? (
-        <div className="modal-backdrop" role="presentation">
-          <div aria-labelledby="delete-dialog-title" aria-modal="true" className="delete-dialog" role="dialog">
-            <div className="delete-dialog-icon"><Trash2 size={20} /></div>
-            <div>
-              <h3 id="delete-dialog-title">Delete dataset?</h3>
-              <p><strong>{pendingDelete.original_filename}</strong> and its cleaned data will be permanently removed.</p>
-            </div>
-            <div className="delete-dialog-actions">
-              <button disabled={Boolean(deletingId)} onClick={() => setPendingDelete(null)} type="button">Cancel</button>
-              <button className="danger-button" disabled={Boolean(deletingId)} onClick={() => handleDeleteDataset(pendingDelete)} type="button">
-                {deletingId ? <Loader2 className="spin" size={17} /> : <Trash2 size={17} />}
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </main>
+    <>
+      <input accept=".csv,.xlsx,.xls" className="hidden-file-input" disabled={isUploading} onChange={handleUpload} ref={fileInput} type="file" />
+      <AppShell
+        datasets={datasets}
+        isRefreshing={isLoading}
+        isUploading={isUploading}
+        onDatasetChange={changeDataset}
+        onLogout={logout}
+        onRefresh={() => selectedId && void loadDatasetDetails(selectedId, forecastDays)}
+        onReport={() => selectedId && void openHtmlDocument(() => api.reportHtml(selectedId)).catch((error) => notify(error instanceof Error ? error.message : "Could not open report.", "error"))}
+        onUpload={() => fileInput.current?.click()}
+        onViewChange={changeView}
+        onPreferencesChange={setPreferences}
+        preferences={preferences}
+        selectedId={selectedId}
+        user={user}
+        view={view}
+      >
+        {content}
+      </AppShell>
+      <ToastRegion onDismiss={dismissToast} toast={toast} />
+      {pendingDelete ? <div className="modal-backdrop" role="presentation"><div aria-describedby="delete-dialog-description" aria-labelledby="delete-dialog-title" aria-modal="true" className="delete-dialog" ref={deleteDialog} role="dialog"><div className="delete-dialog-icon"><Trash2 aria-hidden="true" size={20} /></div><div><h3 id="delete-dialog-title">Delete dataset?</h3><p id="delete-dialog-description"><strong>{pendingDelete.original_filename}</strong> and its cleaned data will be permanently removed.</p></div><div className="delete-dialog-actions"><button disabled={Boolean(deletingId)} onClick={() => setPendingDelete(null)} ref={deleteCancelButton} type="button">Cancel</button><button className="danger-button" disabled={Boolean(deletingId)} onClick={() => void handleDeleteDataset(pendingDelete)} type="button">{deletingId ? <Loader2 aria-hidden="true" className="spin" size={17} /> : <Trash2 aria-hidden="true" size={17} />}Delete</button></div></div></div> : null}
+    </>
   );
 }
