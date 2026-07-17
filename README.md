@@ -28,20 +28,6 @@ The URL becomes available after the Blueprint is connected and the first deploym
 
 ![Generation analysis with period controls, measurement units, KPIs, anomalies, and forecast](docs/screenshots/analysis.png)
 
-### Data Quality Inspection
-
-![Data-quality inspection with cleaning evidence and responsive column details](docs/screenshots/data-quality.png)
-
-### Responsive Workspace
-
-<p align="center">
-  <img src="docs/screenshots/mobile-fleet.png" width="700" alt="Responsive fleet overview with filters and expandable dataset rows">
-</p>
-
-### Generated Report
-
-![Renewable energy report](docs/screenshots/report.png)
-
 The application screenshots use local synthetic or public demonstration data. Values are illustrative and are not presented as live plant telemetry.
 
 ## Features
@@ -118,7 +104,7 @@ frontend/components/  Dashboard experience
 frontend/lib/         Typed API client
 frontend/tests/       Unit, component, accessibility, and end-to-end tests
 data/sample/          Synthetic dataset for local evaluation
-docs/screenshots/     Verified application and report screenshots
+docs/screenshots/     Verified application screenshots
 render.yaml           Production deployment Blueprint
 ```
 
