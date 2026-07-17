@@ -1,6 +1,8 @@
 # AI Energy Data Analyst
 
-AI Energy Data Analyst is a full-stack renewable-energy operations tool built for analysts and engineering teams. It turns raw solar, wind, demand, weather, or maintenance files into a validated dataset, energy KPIs, anomaly evidence, forecasts, safe natural-language analysis, and a business-ready HTML report.
+[![CI](https://github.com/ammar081/AI-Energy-Data-Analyst/actions/workflows/ci.yml/badge.svg)](https://github.com/ammar081/AI-Energy-Data-Analyst/actions/workflows/ci.yml)
+
+AI Energy Data Analyst is a full-stack renewable-energy operations tool built for analysts and engineering teams. It turns raw solar, wind, demand, weather, or maintenance files into a validated dataset, an accessible operations workspace, energy KPIs, anomaly evidence, forecasts, safe natural-language analysis, and a business-ready HTML report.
 
 ## Problem Statement
 
@@ -12,23 +14,35 @@ This project keeps calculations deterministic in Python. The optional Gemini lay
 
 The repository includes a one-click Render Blueprint in `render.yaml` for the Next.js app, FastAPI service, and PostgreSQL database. The configured application URL will be:
 
-`https://ammar081-energy-analyst.onrender.com`
+[https://ammar081-energy-analyst.onrender.com](https://ammar081-energy-analyst.onrender.com)
 
 The URL becomes available after the Blueprint is connected and the first deployment completes. Free Render services can take a short time to wake after inactivity.
 
 ## Screenshots
 
-### Operations Overview
+### Fleet Operations Overview
 
-![Operations dashboard](docs/screenshots/dashboard.png)
+![Fleet operations overview with searchable dataset status, portfolio KPIs, and attention queue](docs/screenshots/dashboard.png)
+
+### Domain Analysis Dashboard
+
+![Generation analysis with period controls, measurement units, KPIs, anomalies, and forecast](docs/screenshots/analysis.png)
 
 ### Data Quality Inspection
 
-![Data quality view](docs/screenshots/data-quality.png)
+![Data-quality inspection with cleaning evidence and responsive column details](docs/screenshots/data-quality.png)
+
+### Responsive Workspace
+
+<p align="center">
+  <img src="docs/screenshots/mobile-fleet.png" width="700" alt="Responsive fleet overview with filters and expandable dataset rows">
+</p>
 
 ### Generated Report
 
 ![Renewable energy report](docs/screenshots/report.png)
+
+The application screenshots use local synthetic or public demonstration data. Values are illustrative and are not presented as live plant telemetry.
 
 ## Features
 
@@ -46,6 +60,15 @@ The URL becomes available after the Blueprint is connected and the first deploym
 - structured business explanations covering what happened, why it matters, a possible reason, and the next action
 - chart-rich HTML report with data quality, KPIs, anomalies, forecast, executive summary, and recommendations
 - permanent dataset deletion for database metadata, raw uploads, and cleaned files
+- responsive application shell with desktop navigation, mobile navigation, and role-aware commands
+- fleet search, domain and status filters, sorting, pagination, portfolio mix, and operational attention queue
+- domain-specific dashboards for generation, demand, maintenance, and combined generation-and-demand datasets
+- bookmarkable URL state for workspace views, selected datasets, rolling periods, and custom date ranges
+- consistent MW, MWh, percentage, time, and configurable maintenance-currency formatting
+- persisted system, light, and dark themes plus density, page-size, currency, and default-period preferences
+- expandable mobile data rows that replace horizontal table scrolling on smaller screens
+- consistent loading, empty, success, progress, and actionable error feedback across operational views
+- keyboard navigation, focus management, screen-reader labels, chart summaries, reduced-motion support, and automated accessibility checks
 - JWT authentication with administrator, analyst, and viewer permissions
 - administrator workspace for user roles, account status, usage totals, datasets, and reports
 - fleet comparison for two to six datasets with domain-aware ranking
@@ -53,7 +76,8 @@ The URL becomes available after the Blueprint is connected and the first deploym
 - vector-ranked search across stored report findings and recommendations
 - authenticated live telemetry simulation with expected-value and deviation tracking
 - bounded caching and anomaly sampling for multi-million-row datasets
-- SQLite locally, PostgreSQL in Docker and Render, plus Docker Compose, pytest, Ruff, and GitHub Actions
+- SQLite locally, PostgreSQL in Docker and Render, plus Docker Compose and GitHub Actions
+- pytest and Ruff backend coverage plus Vitest, React Testing Library, Playwright, and axe-core frontend coverage
 
 ## Tech Stack
 
@@ -61,7 +85,7 @@ Backend: Python 3.12, FastAPI, pandas, NumPy, scikit-learn, statsmodels, Google 
 
 Frontend: Next.js 16, React 19, TypeScript, Recharts, lucide-react
 
-Quality and delivery: pytest, Ruff, Docker, Docker Compose, GitHub Actions, Render Blueprint
+Quality and delivery: pytest, Ruff, Vitest, React Testing Library, Playwright, axe-core, Docker, Docker Compose, GitHub Actions, Render Blueprint
 
 ## Architecture
 
@@ -92,6 +116,7 @@ backend/tests/        Unit and end-to-end API tests
 frontend/app/         Next.js application shell and responsive styling
 frontend/components/  Dashboard experience
 frontend/lib/         Typed API client
+frontend/tests/       Unit, component, accessibility, and end-to-end tests
 data/sample/          Synthetic dataset for local evaluation
 docs/screenshots/     Verified application and report screenshots
 render.yaml           Production deployment Blueprint
@@ -115,7 +140,7 @@ Frontend in a second terminal:
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -196,10 +221,13 @@ pytest
 ```powershell
 cd frontend
 npm run typecheck
-npm run build
+npm run test:component
+npm run test:e2e
 ```
 
-CI runs the same checks for every pull request. The 23-test backend suite covers cleaning evidence, role permissions, generation and demand KPIs, maintenance work orders, advanced forecasting, anomaly rules, safe question behavior, report jobs, vector search, upload limits, and complete API workflows.
+The 23-test backend suite covers cleaning evidence, role permissions, generation and demand KPIs, maintenance work orders, advanced forecasting, anomaly rules, safe question behavior, report jobs, vector search, upload limits, and complete API workflows. The frontend suite adds 13 unit and component tests plus four Playwright scenarios for desktop navigation, mobile disclosures, preference persistence, combined operations, and serious or critical accessibility violations.
+
+GitHub Actions currently runs backend Ruff and pytest checks alongside frontend type checking and the production build for every pull request and every push to `main`.
 
 ## Deployment
 
